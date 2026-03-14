@@ -7,6 +7,7 @@ pandas>=2.2
 numpy>=1.26
 python-dotenv>=1.0
 yfinance>=0.2
+feedparser>=6.0
 ta>=0.11
 anthropic>=0.42
 openai>=1.60
