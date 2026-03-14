@@ -219,12 +219,12 @@ def create_chart(df, sym, height=480):
         increasing_fillcolor="#34c759", decreasing_fillcolor="#ff3b30"), row=1, col=1)
     if "SMA_50" in df: fig.add_trace(go.Scatter(x=df.index, y=df["SMA_50"], name="50 SMA", line=dict(color="#007aff", width=1.5)), row=1, col=1)
     if "SMA_200" in df: fig.add_trace(go.Scatter(x=df.index, y=df["SMA_200"], name="200 SMA", line=dict(color="#af52de", width=1.5)), row=1, col=1)
-    vc = ["#34c75966" if c >= o else "#ff3b3066" for c, o in zip(df["Close"], df["Open"])]
-    fig.add_trace(go.Bar(x=df.index, y=df["Volume"], name="Volume", marker_color=vc), row=2, col=1)
+    vc = ["rgba(52,199,89,0.4)" if c >= o else "rgba(255,59,48,0.4)" for c, o in zip(df["Close"], df["Open"])]
+    fig.add_trace(go.Bar(x=df.index, y=df["Volume"], name="Volume", marker=dict(color=vc)), row=2, col=1)
     if "RSI" in df:
         fig.add_trace(go.Scatter(x=df.index, y=df["RSI"], name="RSI", line=dict(color="#ff9500", width=1.5)), row=3, col=1)
-        fig.add_hline(y=70, line_dash="dot", line_color="#ff3b3044", row=3, col=1)
-        fig.add_hline(y=30, line_dash="dot", line_color="#34c75944", row=3, col=1)
+        fig.add_hline(y=70, line_dash="dot", line_color="rgba(255,59,48,0.3)", row=3, col=1)
+        fig.add_hline(y=30, line_dash="dot", line_color="rgba(52,199,89,0.3)", row=3, col=1)
         fig.update_yaxes(range=[0, 100], row=3, col=1)
     fig.update_layout(template="plotly_white", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         height=height, margin=dict(l=50, r=20, t=10, b=20), xaxis_rangeslider_visible=False,
@@ -545,10 +545,10 @@ with tab_picks:
                                 st.markdown('<div class="section-title">Revenue & Earnings Trend</div>', unsafe_allow_html=True)
                                 rd = inc.loc[rev_r].dropna().sort_index()
                                 fig_r = go.Figure()
-                                fig_r.add_trace(go.Bar(x=[d.strftime("%b %Y") if hasattr(d,"strftime") else str(d) for d in rd.index], y=rd.values, name="Revenue", marker_color="#007aff", marker_cornerradius=6))
+                                fig_r.add_trace(go.Bar(x=[d.strftime("%b %Y") if hasattr(d,"strftime") else str(d) for d in rd.index], y=rd.values, name="Revenue", marker_color="#007aff"))
                                 if ni_r:
                                     nd = inc.loc[ni_r].dropna().sort_index()
-                                    fig_r.add_trace(go.Bar(x=[d.strftime("%b %Y") if hasattr(d,"strftime") else str(d) for d in nd.index], y=nd.values, name="Net Income", marker_color="#34c759", marker_cornerradius=6))
+                                    fig_r.add_trace(go.Bar(x=[d.strftime("%b %Y") if hasattr(d,"strftime") else str(d) for d in nd.index], y=nd.values, name="Net Income", marker_color="#34c759"))
                                 fig_r.update_layout(template="plotly_white", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=300, barmode="group", legend=dict(orientation="h"), margin=dict(l=50,r=20,t=10,b=40), font=dict(family="Inter",color="#1d1d1f"))
                                 fig_r.update_xaxes(gridcolor="#f5f5f7"); fig_r.update_yaxes(gridcolor="#f5f5f7")
                                 st.plotly_chart(fig_r, use_container_width=True)
@@ -666,7 +666,7 @@ with tab_picks:
                             st.markdown(f"""<div class="card"><div style="font-size:14px;color:#424245;line-height:1.7">{desc}</div>
                                 <div style="margin-top:16px;display:flex;gap:24px;flex-wrap:wrap">
                                     <div><span class="label">Industry</span><br><span class="value-sm">{info.get("industry","—")}</span></div>
-                                    <div><span class="label">Employees</span><br><span class="value-sm">{info.get("fullTimeEmployees","—"):,}</span></div>
+                                    <div><span class="label">Employees</span><br><span class="value-sm">{f'{info["fullTimeEmployees"]:,}' if isinstance(info.get("fullTimeEmployees"), (int, float)) else '—'}</span></div>
                                     <div><span class="label">Country</span><br><span class="value-sm">{info.get("country","—")}</span></div>
                                     <div><span class="label">Website</span><br><span class="value-sm">{info.get("website","—")}</span></div>
                                 </div>
