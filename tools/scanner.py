@@ -239,12 +239,12 @@ def _analyze_stock(symbol: str,
         "atr": round(atr_val, 2),
         "atr_pct": round(atr_pct, 2),
         # Fundamentals
-        "pe_ratio": round(pe_ratio, 2) if pe_ratio else None,
-        "forward_pe": round(forward_pe, 2) if forward_pe else None,
+        "pe_ratio": round(float(pe_ratio), 2) if pe_ratio and isinstance(pe_ratio, (int, float)) else None,
+        "forward_pe": round(float(forward_pe), 2) if forward_pe and isinstance(forward_pe, (int, float)) else None,
         "market_cap": market_cap,
-        "revenue_growth": round(revenue_growth, 4) if revenue_growth else None,
-        "profit_margins": round(profit_margins, 4) if profit_margins else None,
-        "price_to_book": round(price_to_book, 2) if price_to_book else None,
+        "revenue_growth": round(float(revenue_growth), 4) if revenue_growth and isinstance(revenue_growth, (int, float)) else None,
+        "profit_margins": round(float(profit_margins), 4) if profit_margins and isinstance(profit_margins, (int, float)) else None,
+        "price_to_book": round(float(price_to_book), 2) if price_to_book and isinstance(price_to_book, (int, float)) else None,
         # Earnings
         "earnings_days_away": earnings_days_away,
         # Divergences

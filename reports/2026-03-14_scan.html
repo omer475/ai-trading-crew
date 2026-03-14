@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investment Scan Report - 2026-03-14</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               max-width: 1400px; margin: 0 auto; padding: 20px; background: #f5f6fa; color: #2c3e50; }
+        h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #34495e; margin-top: 30px; }
+        table { border-collapse: collapse; width: 100%; margin: 10px 0; background: #fff;
+                 border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        th { background: #34495e; color: white; padding: 10px 8px; text-align: left; font-size: 13px; }
+        td { padding: 8px; border-bottom: 1px solid #ecf0f1; font-size: 13px; }
+        tr:hover { background: #f8f9fa; }
+        .regime-badge { display: inline-block; padding: 8px 16px; border-radius: 20px;
+                         color: white; font-weight: bold; font-size: 18px; }
+        .config { background: #fff; padding: 15px; border-radius: 8px; margin: 10px 0;
+                   box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <h1>AI Trading Crew - Long-Term Investment Scan</h1>
+    <p><strong>Date:</strong> 2026-03-14 | <strong>Pipeline:</strong> 5-Stage Automated Scan
+       | <strong>Focus:</strong> Long-term (3-12 months)</p>
+
+    <h2>Market Regime</h2>
+    <div class="config">
+        <span class="regime-badge" style="background:#f39c12">NEUTRAL</span>
+        <p>Composite Score: -0.1638 | Confidence: 56.7%</p>
+        <p><strong>Strategy:</strong> Reduce position sizes. Prefer mean-reversion and range-bound strategies. Be very selective — quality over quantity.</p>
+        <p>Position sizing: 0.65x |
+           Sector bias: balanced |
+           Hedging: moderate</p>
+    </div>
+
+    <h3>Regime Signals</h3>
+    <table>
+        <tr><th>Signal</th><th>Score</th><th>Bar</th><th>Detail</th></tr>
+        
+        <tr>
+            <td>spy_trend</td>
+            <td>+0.045</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:4%;height:100%;background:#27ae60;
+                                border-radius:6px;float:right"></div>
+                </div>
+            </td>
+            <td><small>SPY 662.29 | 50-SMA 686.38 | 200-SMA 656.41 | Price below 50-SMA, above 200-SMA</small></td>
+        </tr>
+        <tr>
+            <td>vix</td>
+            <td>-0.700</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:70%;height:100%;background:#e74c3c;
+                                border-radius:6px;float:left"></div>
+                </div>
+            </td>
+            <td><small>VIX 27.19 (20-SMA 22.27)</small></td>
+        </tr>
+        <tr>
+            <td>breadth</td>
+            <td>-0.250</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:25%;height:100%;background:#e74c3c;
+                                border-radius:6px;float:left"></div>
+                </div>
+            </td>
+            <td><small>3/8 sectors above 50-SMA (38% participation)</small></td>
+        </tr>
+        <tr>
+            <td>sector_rotation</td>
+            <td>-0.355</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:36%;height:100%;background:#e74c3c;
+                                border-radius:6px;float:left"></div>
+                </div>
+            </td>
+            <td><small>Offensive avg 20d return -4.34% vs Defensive -0.79% (spread -3.55%) — RISK-OFF rotation</small></td>
+        </tr>
+        <tr>
+            <td>yield_curve</td>
+            <td>+0.341</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:34%;height:100%;background:#27ae60;
+                                border-radius:6px;float:right"></div>
+                </div>
+            </td>
+            <td><small>10Y 4.28% - 2Y proxy 3.60% = +0.68% (NORMAL)</small></td>
+        </tr>
+        <tr>
+            <td>credit_spread</td>
+            <td>+0.234</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:23%;height:100%;background:#27ae60;
+                                border-radius:6px;float:right"></div>
+                </div>
+            </td>
+            <td><small>HYG 20d ret -1.56% vs LQD -2.73% (spread +1.17%)</small></td>
+        </tr>
+        <tr>
+            <td>put_call_proxy</td>
+            <td>-0.900</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:90%;height:100%;background:#e74c3c;
+                                border-radius:6px;float:left"></div>
+                </div>
+            </td>
+            <td><small>VIX at 93% percentile (1Y). Current 27.19 — EXTREME FEAR</small></td>
+        </tr>
+        <tr>
+            <td>highs_lows</td>
+            <td>+0.250</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:25%;height:100%;background:#27ae60;
+                                border-radius:6px;float:right"></div>
+                </div>
+            </td>
+            <td><small>2 ETFs near 52w high, 0 near 52w low (net +2 out of 8)</small></td>
+        </tr>
+    </table>
+
+    <h2>Top Investment Picks</h2>
+    <table>
+        <tr>
+            <th>#</th><th>Stock</th><th>Price</th><th>Scan</th><th>AI</th>
+            <th>Combined</th><th>Verdict</th><th>Conf</th><th>Entry Range</th>
+            <th>Stop</th><th>Target</th><th>Hold</th><th>Reason</th>
+            <th>Agreed</th><th>Disagreed</th>
+        </tr>
+        
+        <tr>
+            <td><strong>1</strong></td>
+            <td><strong>GPOR</strong><br><small>Gulfport Energy Corporation</small></td>
+            <td>$196.64</td>
+            <td>89.0</td>
+            <td>50.0</td>
+            <td><strong>89.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>89%</td>
+            <td>$190.06 - $201.01</td>
+            <td>$182.88</td>
+            <td>$226.14</td>
+            <td>4-8 months</td>
+            <td><small>Attractive valuation (P/E 9.2). Revenue growth 25%. Above 200-day moving average (long-term uptrend). Strong margins (33</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>2</strong></td>
+            <td><strong>LC</strong><br><small>LendingClub Corporation</small></td>
+            <td>$13.80</td>
+            <td>88.0</td>
+            <td>50.0</td>
+            <td><strong>88.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>88%</td>
+            <td>$13.80 - $14.24</td>
+            <td>$12.92</td>
+            <td>$15.87</td>
+            <td>4-8 months</td>
+            <td><small>Attractive valuation (P/E 11.9). Revenue growth 12%. RSI bullish divergence detected</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>3</strong></td>
+            <td><strong>CINF</strong><br><small>Cincinnati Financial Corporatio</small></td>
+            <td>$163.82</td>
+            <td>87.0</td>
+            <td>50.0</td>
+            <td><strong>87.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>87%</td>
+            <td>$160.73 - $165.64</td>
+            <td>$157.09</td>
+            <td>$188.39</td>
+            <td>4-8 months</td>
+            <td><small>Attractive valuation (P/E 10.8). Revenue growth 22%. Above 200-day moving average (long-term uptrend). RSI bullish diver</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>4</strong></td>
+            <td><strong>EIX</strong><br><small>Edison International</small></td>
+            <td>$71.73</td>
+            <td>87.0</td>
+            <td>50.0</td>
+            <td><strong>87.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>87%</td>
+            <td>$69.91 - $72.64</td>
+            <td>$67.88</td>
+            <td>$82.49</td>
+            <td>4-8 months</td>
+            <td><small>Attractive valuation (P/E 6.2). Revenue growth 31%. Above 200-day moving average (long-term uptrend). Strong margins (23</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>5</strong></td>
+            <td><strong>PRU</strong><br><small>Prudential Financial, Inc.</small></td>
+            <td>$92.00</td>
+            <td>86.0</td>
+            <td>50.0</td>
+            <td><strong>86.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>86%</td>
+            <td>$92.00 - $93.50</td>
+            <td>$89.01</td>
+            <td>$105.80</td>
+            <td>4-8 months</td>
+            <td><small>Attractive valuation (P/E 9.2). Revenue growth 31%. RSI bullish divergence detected</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>6</strong></td>
+            <td><strong>NTRS</strong><br><small>Northern Trust Corporation</small></td>
+            <td>$136.92</td>
+            <td>86.0</td>
+            <td>50.0</td>
+            <td><strong>86.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>86%</td>
+            <td>$136.92 - $139.29</td>
+            <td>$132.18</td>
+            <td>$157.46</td>
+            <td>4-8 months</td>
+            <td><small>Attractive valuation (P/E 15.7). Revenue growth 8%. Above 200-day moving average (long-term uptrend). RSI bullish diverg</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>7</strong></td>
+            <td><strong>KEY</strong><br><small>KeyCorp</small></td>
+            <td>$18.90</td>
+            <td>86.0</td>
+            <td>50.0</td>
+            <td><strong>86.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>86%</td>
+            <td>$18.90 - $19.25</td>
+            <td>$18.20</td>
+            <td>$21.73</td>
+            <td>4-8 months</td>
+            <td><small>Attractive valuation (P/E 12.4). Revenue growth 132%. Above 200-day moving average (long-term uptrend). Strong margins (</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>8</strong></td>
+            <td><strong>CNX</strong><br><small>CNX Resources Corporation</small></td>
+            <td>$42.14</td>
+            <td>86.0</td>
+            <td>50.0</td>
+            <td><strong>86.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>86%</td>
+            <td>$40.53 - $42.94</td>
+            <td>$39.19</td>
+            <td>$48.46</td>
+            <td>4-8 months</td>
+            <td><small>Attractive valuation (P/E 10.6). Revenue growth 41%. Above 200-day moving average (long-term uptrend). Strong margins (3</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>9</strong></td>
+            <td><strong>USB</strong><br><small>U.S. Bancorp</small></td>
+            <td>$51.00</td>
+            <td>85.0</td>
+            <td>50.0</td>
+            <td><strong>85.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>85%</td>
+            <td>$51.00 - $51.83</td>
+            <td>$49.35</td>
+            <td>$58.65</td>
+            <td>4-8 months</td>
+            <td><small>Attractive valuation (P/E 11.0). Revenue growth 5%. Above 200-day moving average (long-term uptrend). Strong margins (29</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>10</strong></td>
+            <td><strong>FHN</strong><br><small>First Horizon Corporation</small></td>
+            <td>$21.74</td>
+            <td>85.0</td>
+            <td>50.0</td>
+            <td><strong>85.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>85%</td>
+            <td>$21.74 - $22.11</td>
+            <td>$20.99</td>
+            <td>$25.00</td>
+            <td>4-8 months</td>
+            <td><small>Attractive valuation (P/E 11.6). Revenue growth 24%. Strong margins (29%)</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+    </table>
+
+    <h2>Detailed Analysis - Top 5</h2>
+    
+        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0;
+                     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <h3>#1 GPOR - Gulfport Energy Corporation</h3>
+            <table style="width:100%;margin:8px 0">
+                <tr>
+                    <td><strong>Price:</strong> $196.64</td>
+                    <td><strong>Entry Range:</strong> $190.06 - $201.01</td>
+                    <td><strong>Stop Loss:</strong> $182.88</td>
+                    <td><strong>Target:</strong> $226.14</td>
+                </tr>
+                <tr>
+                    <td><strong>Scanner Score:</strong> 89.0</td>
+                    <td><strong>AI Score:</strong> 50.0</td>
+                    <td><strong>Combined:</strong> 89.0</td>
+                    <td><strong>Holding:</strong> 4-8 months</td>
+                </tr>
+            </table>
+            <p><strong>Why Buy:</strong> Attractive valuation (P/E 9.2). Revenue growth 25%. Above 200-day moving average (long-term uptrend). Strong margins (33%)</p>
+            <h4>Agent Verdicts:</h4>
+            <p><em>No AI analysis (scanner-only mode)</em></p>
+        </div>
+        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0;
+                     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <h3>#2 LC - LendingClub Corporation</h3>
+            <table style="width:100%;margin:8px 0">
+                <tr>
+                    <td><strong>Price:</strong> $13.80</td>
+                    <td><strong>Entry Range:</strong> $13.80 - $14.24</td>
+                    <td><strong>Stop Loss:</strong> $12.92</td>
+                    <td><strong>Target:</strong> $15.87</td>
+                </tr>
+                <tr>
+                    <td><strong>Scanner Score:</strong> 88.0</td>
+                    <td><strong>AI Score:</strong> 50.0</td>
+                    <td><strong>Combined:</strong> 88.0</td>
+                    <td><strong>Holding:</strong> 4-8 months</td>
+                </tr>
+            </table>
+            <p><strong>Why Buy:</strong> Attractive valuation (P/E 11.9). Revenue growth 12%. RSI bullish divergence detected</p>
+            <h4>Agent Verdicts:</h4>
+            <p><em>No AI analysis (scanner-only mode)</em></p>
+        </div>
+        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0;
+                     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <h3>#3 CINF - Cincinnati Financial Corporatio</h3>
+            <table style="width:100%;margin:8px 0">
+                <tr>
+                    <td><strong>Price:</strong> $163.82</td>
+                    <td><strong>Entry Range:</strong> $160.73 - $165.64</td>
+                    <td><strong>Stop Loss:</strong> $157.09</td>
+                    <td><strong>Target:</strong> $188.39</td>
+                </tr>
+                <tr>
+                    <td><strong>Scanner Score:</strong> 87.0</td>
+                    <td><strong>AI Score:</strong> 50.0</td>
+                    <td><strong>Combined:</strong> 87.0</td>
+                    <td><strong>Holding:</strong> 4-8 months</td>
+                </tr>
+            </table>
+            <p><strong>Why Buy:</strong> Attractive valuation (P/E 10.8). Revenue growth 22%. Above 200-day moving average (long-term uptrend). RSI bullish divergence detected. Strong margins (19%)</p>
+            <h4>Agent Verdicts:</h4>
+            <p><em>No AI analysis (scanner-only mode)</em></p>
+        </div>
+        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0;
+                     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <h3>#4 EIX - Edison International</h3>
+            <table style="width:100%;margin:8px 0">
+                <tr>
+                    <td><strong>Price:</strong> $71.73</td>
+                    <td><strong>Entry Range:</strong> $69.91 - $72.64</td>
+                    <td><strong>Stop Loss:</strong> $67.88</td>
+                    <td><strong>Target:</strong> $82.49</td>
+                </tr>
+                <tr>
+                    <td><strong>Scanner Score:</strong> 87.0</td>
+                    <td><strong>AI Score:</strong> 50.0</td>
+                    <td><strong>Combined:</strong> 87.0</td>
+                    <td><strong>Holding:</strong> 4-8 months</td>
+                </tr>
+            </table>
+            <p><strong>Why Buy:</strong> Attractive valuation (P/E 6.2). Revenue growth 31%. Above 200-day moving average (long-term uptrend). Strong margins (23%)</p>
+            <h4>Agent Verdicts:</h4>
+            <p><em>No AI analysis (scanner-only mode)</em></p>
+        </div>
+        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0;
+                     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <h3>#5 PRU - Prudential Financial, Inc.</h3>
+            <table style="width:100%;margin:8px 0">
+                <tr>
+                    <td><strong>Price:</strong> $92.00</td>
+                    <td><strong>Entry Range:</strong> $92.00 - $93.50</td>
+                    <td><strong>Stop Loss:</strong> $89.01</td>
+                    <td><strong>Target:</strong> $105.80</td>
+                </tr>
+                <tr>
+                    <td><strong>Scanner Score:</strong> 86.0</td>
+                    <td><strong>AI Score:</strong> 50.0</td>
+                    <td><strong>Combined:</strong> 86.0</td>
+                    <td><strong>Holding:</strong> 4-8 months</td>
+                </tr>
+            </table>
+            <p><strong>Why Buy:</strong> Attractive valuation (P/E 9.2). Revenue growth 31%. RSI bullish divergence detected</p>
+            <h4>Agent Verdicts:</h4>
+            <p><em>No AI analysis (scanner-only mode)</em></p>
+        </div>
+
+    <div class="config" style="margin-top:30px">
+        <h3>Pipeline Configuration</h3>
+        <p>Scan Interval: 2 weeks |
+           Max Positions: 8 |
+           Min Confidence: 65% |
+           Holding Period: 3-12 months</p>
+        <p><small>Generated by AI Trading Crew Pipeline v1.0</small></p>
+    </div>
+</body>
+</html>
