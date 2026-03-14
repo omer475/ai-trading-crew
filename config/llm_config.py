@@ -2,62 +2,56 @@
 LLM configuration — Two-Tier Strategy (Option A: Best Quality)
 
 Tier 1: Claude Opus 4.6 → Decision agents (Head Coach, Risk Manager, etc.)
-         ~$95/month | 87.82% financial accuracy | 5x more token-efficient than GPT-5
-Tier 2: DeepSeek V3.2 → Analysis & data agents (42 agents)
-         ~$10/month | Strong reasoning | 90% cache discount on system prompts
-Tier 3: DeepSeek V3.2 → GroupChat manager speaker selection (cheap & fast)
+Tier 2: DeepSeek V3.2  → Analysis & data agents (42 agents)
 """
 
 import os
 from dotenv import load_dotenv
+from autogen_ext.models.anthropic import AnthropicChatCompletionClient
+from autogen_ext.models.openai import OpenAIChatCompletionClient
 
 load_dotenv()
 
-# ─── Tier 1: Decision Agents (8 agents) ───────────────────────────────
-# Claude Opus 4.6 via Anthropic API (OpenAI-compatible endpoint)
-# Used for: Head Coach, Risk Manager, Devil's Advocate, Lead Analysts, Compliance
-llm_config_decision = {
-    "config_list": [
-        {
-            "model": "claude-opus-4-6",
-            "api_key": os.getenv("ANTHROPIC_API_KEY"),
-            "api_type": "anthropic",
-        }
-    ],
-    "temperature": 0.2,  # Low temp for critical financial decisions
-    "timeout": 120,
-}
 
-# ─── Tier 2: Analysis & Data Agents (42 agents) ──────────────────────
-# DeepSeek V3.2 via OpenAI-compatible API
-# Used for: All analysts, sector specialists, sentiment, data agents
-llm_config_analysis = {
-    "config_list": [
-        {
-            "model": "deepseek-chat",
-            "api_key": os.getenv("DEEPSEEK_API_KEY"),
-            "base_url": "https://api.deepseek.com/v1",
-        }
-    ],
-    "temperature": 0.3,
-    "timeout": 90,
-}
+def get_decision_client():
+    """Claude Opus 4.6 — for the 8 decision agents."""
+    return AnthropicChatCompletionClient(
+        model="claude-opus-4-6",
+        api_key=os.getenv("ANTHROPIC_API_KEY"),
+        temperature=0.2,
+        max_tokens=4096,
+    )
 
-# ─── Tier 3: GroupChat Manager (speaker selection only) ───────────────
-# DeepSeek V3.2 — cheapest option for the "who speaks next?" calls
-llm_config_manager = {
-    "config_list": [
-        {
-            "model": "deepseek-chat",
-            "api_key": os.getenv("DEEPSEEK_API_KEY"),
-            "base_url": "https://api.deepseek.com/v1",
-        }
-    ],
-    "temperature": 0.1,  # Very low — just picking the next speaker
-    "timeout": 30,
-}
 
-# ─── Backward compatibility aliases ──────────────────────────────────
-# These map to the old variable names used in main.py
-llm_config = llm_config_decision       # Default: best model
-llm_config_lite = llm_config_analysis   # Lite: cheap model
+def get_analysis_client():
+    """DeepSeek V3.2 — for the 42 analysis & data agents."""
+    return OpenAIChatCompletionClient(
+        model="deepseek-chat",
+        api_key=os.getenv("DEEPSEEK_API_KEY"),
+        base_url="https://api.deepseek.com/v1",
+        temperature=0.3,
+        model_info={
+            "vision": False,
+            "function_calling": True,
+            "json_output": True,
+            "family": "unknown",
+            "structured_output": True,
+        },
+    )
+
+
+def get_manager_client():
+    """DeepSeek V3.2 — cheap model for GroupChat speaker selection."""
+    return OpenAIChatCompletionClient(
+        model="deepseek-chat",
+        api_key=os.getenv("DEEPSEEK_API_KEY"),
+        base_url="https://api.deepseek.com/v1",
+        temperature=0.1,
+        model_info={
+            "vision": False,
+            "function_calling": True,
+            "json_output": True,
+            "family": "unknown",
+            "structured_output": True,
+        },
+    )

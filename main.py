@@ -1,5 +1,5 @@
 """
-AI Trading Crew — Main Entry Point
+AI Trading Crew — Main Entry Point (AutoGen 0.7+)
 
 Two-Tier Model Strategy (Option A: Best Quality):
   - Claude Opus 4.6 → Head Coach, Risk Manager, Devil's Advocate, Lead Analysts
@@ -11,62 +11,57 @@ Usage:
     python main.py --symbol AAPL    # Analyze a specific stock
 """
 
+import asyncio
 import argparse
-import autogen
+from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
+from autogen_agentchat.teams import SelectorGroupChat
+from autogen_agentchat.conditions import MaxMessageTermination
 from agents.personas.definitions import PERSONAS, TEAMS
 from agents.head_coach import HEAD_COACH_PROMPT
-from config.llm_config import llm_config_decision, llm_config_analysis, llm_config_manager
+from config.llm_config import get_decision_client, get_analysis_client, get_manager_client
 
 # These 8 agents use Claude Opus 4.6 (Tier 1 — best reasoning)
-DECISION_AGENTS = {
-    "head_coach",           # Supervises everything
-    "risk_portfolio",       # Viktor — portfolio risk, has VETO power
-    "risk_devils_advocate", # Mei — challenges every trade
-    "risk_compliance",      # David — regulatory compliance
-    "ta_trend_follower",    # Marcus — Technical Analysis team lead
-    "fa_value_investor",    # Warren — Fundamental Analysis team lead
-    "macro_fed_watcher",    # Janet — Macro team lead
-    "quant_stat_arb",       # Dr. Chen — Quant team lead
+DECISION_AGENT_IDS = {
+    "head_coach",
+    "risk_portfolio",
+    "risk_devils_advocate",
+    "risk_compliance",
+    "ta_trend_follower",
+    "fa_value_investor",
+    "macro_fed_watcher",
+    "quant_stat_arb",
 }
 
 
-def create_agent(persona_id: str, persona: dict) -> autogen.AssistantAgent:
+def create_agent(persona_id: str, persona: dict,
+                 decision_client, analysis_client) -> AssistantAgent:
     """Create an AutoGen agent with the right model tier."""
-    # Decision agents → Claude Opus 4.6, all others → DeepSeek V3.2
-    if persona_id in DECISION_AGENTS:
-        config = llm_config_decision
-    else:
-        config = llm_config_analysis
+    client = decision_client if persona_id in DECISION_AGENT_IDS else analysis_client
 
-    return autogen.AssistantAgent(
-        name=persona["name"].replace(" ", "_").replace(".", ""),
+    # AutoGen 0.7 requires names to be valid Python identifiers
+    import re
+    safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", persona["name"])
+    safe_name = re.sub(r"_+", "_", safe_name).strip("_")
+
+    return AssistantAgent(
+        name=safe_name,
         system_message=persona["system_message"],
-        description=f"{persona['name']} - {persona['team']} team",  # Used for speaker selection
-        llm_config=config,
+        description=f"{persona['name']} - {persona['team']} team specialist",
+        model_client=client,
     )
 
 
-def create_head_coach() -> autogen.AssistantAgent:
+def create_head_coach(decision_client) -> AssistantAgent:
     """Create the Head Coach — always uses Claude Opus 4.6."""
-    return autogen.AssistantAgent(
+    return AssistantAgent(
         name="Head_Coach",
         system_message=HEAD_COACH_PROMPT,
         description="Head Coach - supervises all teams and makes final trading decisions",
-        llm_config=llm_config_decision,  # Claude Opus 4.6
+        model_client=decision_client,
     )
 
 
-def create_human_proxy() -> autogen.UserProxyAgent:
-    """Create a human proxy for oversight and approvals."""
-    return autogen.UserProxyAgent(
-        name="Human_Trader",
-        human_input_mode="TERMINATE",
-        max_consecutive_auto_reply=0,
-        code_execution_config=False,
-    )
-
-
-def run_analysis(symbol: str = "AAPL", test_mode: bool = False):
+async def run_analysis(symbol: str = "AAPL", test_mode: bool = False):
     """Run a full analysis cycle for a stock."""
 
     print(f"\n{'='*60}")
@@ -76,36 +71,49 @@ def run_analysis(symbol: str = "AAPL", test_mode: bool = False):
     print(f"  Analysis model: DeepSeek V3.2")
     print(f"{'='*60}\n")
 
-    coach = create_head_coach()
-    human = create_human_proxy()
+    # Create model clients (shared across agents of same tier)
+    decision_client = get_decision_client()
+    analysis_client = get_analysis_client()
+    manager_client = get_manager_client()
+
+    coach = create_head_coach(decision_client)
 
     if test_mode:
-        # Quick test with 5 key agents (all use Claude Opus in test mode)
+        # Quick test with 5 key agents + Head Coach
         test_agents = [
-            create_agent("ta_trend_follower", PERSONAS["ta_trend_follower"]),
-            create_agent("fa_value_investor", PERSONAS["fa_value_investor"]),
-            create_agent("macro_fed_watcher", PERSONAS["macro_fed_watcher"]),
-            create_agent("risk_portfolio", PERSONAS["risk_portfolio"]),
-            create_agent("risk_devils_advocate", PERSONAS["risk_devils_advocate"]),
+            create_agent("ta_trend_follower", PERSONAS["ta_trend_follower"],
+                        decision_client, analysis_client),
+            create_agent("fa_value_investor", PERSONAS["fa_value_investor"],
+                        decision_client, analysis_client),
+            create_agent("macro_fed_watcher", PERSONAS["macro_fed_watcher"],
+                        decision_client, analysis_client),
+            create_agent("risk_portfolio", PERSONAS["risk_portfolio"],
+                        decision_client, analysis_client),
+            create_agent("risk_devils_advocate", PERSONAS["risk_devils_advocate"],
+                        decision_client, analysis_client),
         ]
 
-        group_chat = autogen.GroupChat(
-            agents=[coach] + test_agents + [human],
-            messages=[],
-            max_round=15,
-        )
-        # GroupChat manager uses cheap DeepSeek for speaker selection
-        manager = autogen.GroupChatManager(
-            groupchat=group_chat,
-            llm_config=llm_config_manager,
+        termination = MaxMessageTermination(max_messages=15)
+
+        team = SelectorGroupChat(
+            participants=[coach] + test_agents,
+            model_client=manager_client,  # Cheap model for speaker selection
+            termination_condition=termination,
         )
 
-        human.initiate_chat(
-            manager,
-            message=f"Analyze {symbol} for a potential trade. Each specialist should give their "
-                    f"analysis, then the Head Coach makes the final decision. "
-                    f"Consider current market conditions as of today.",
+        task = (
+            f"Analyze {symbol} for a potential trade. Each specialist should give their "
+            f"analysis, then the Head Coach makes the final decision. "
+            f"Consider current market conditions as of today."
         )
+
+        print(f"Starting analysis of {symbol} with 5 agents + Head Coach...\n")
+
+        async for message in team.run_stream(task=task):
+            if hasattr(message, "source") and hasattr(message, "content"):
+                print(f"\n--- {message.source} ---")
+                print(message.content)
+
     else:
         # Full mode: Each team debates internally, then Head Coach decides
         team_summaries = {}
@@ -116,31 +124,31 @@ def run_analysis(symbol: str = "AAPL", test_mode: bool = False):
             print()
 
             team_agents = [
-                create_agent(mid, PERSONAS[mid])
+                create_agent(mid, PERSONAS[mid], decision_client, analysis_client)
                 for mid in team_info["members"]
             ]
 
-            group_chat = autogen.GroupChat(
-                agents=team_agents,
-                messages=[],
-                max_round=8,
-            )
-            # Cheap model for "who speaks next" within each team
-            manager = autogen.GroupChatManager(
-                groupchat=group_chat,
-                llm_config=llm_config_manager,
+            termination = MaxMessageTermination(max_messages=8)
+
+            team_chat = SelectorGroupChat(
+                participants=team_agents,
+                model_client=manager_client,
+                termination_condition=termination,
             )
 
-            team_agents[0].initiate_chat(
-                manager,
-                message=f"Team, analyze {symbol} from our {team_info['name']} perspective. "
-                        f"Each member give your specific analysis. Conclude with a team "
-                        f"recommendation: BUY, SELL, or HOLD with confidence level.",
+            task = (
+                f"Team, analyze {symbol} from our {team_info['name']} perspective. "
+                f"Each member give your specific analysis. Conclude with a team "
+                f"recommendation: BUY, SELL, or HOLD with confidence level."
             )
 
-            team_summaries[team_key] = (
-                group_chat.messages[-1]["content"] if group_chat.messages else "No analysis"
-            )
+            last_message = ""
+            async for message in team_chat.run_stream(task=task):
+                if hasattr(message, "source") and hasattr(message, "content"):
+                    print(f"  [{message.source}]: {message.content[:200]}...")
+                    last_message = message.content
+
+            team_summaries[team_key] = last_message
 
         # Head Coach (Claude Opus 4.6) reviews all team summaries
         print(f"\n{'='*60}")
@@ -151,21 +159,21 @@ def run_analysis(symbol: str = "AAPL", test_mode: bool = False):
             f"=== {TEAMS[k]['name']} ===\n{v}" for k, v in team_summaries.items()
         )
 
-        final_chat = autogen.GroupChat(
-            agents=[coach, human],
-            messages=[],
-            max_round=5,
-        )
-        final_manager = autogen.GroupChatManager(
-            groupchat=final_chat,
-            llm_config=llm_config_manager,
+        final_termination = MaxMessageTermination(max_messages=3)
+        final_team = SelectorGroupChat(
+            participants=[coach],
+            model_client=manager_client,
+            termination_condition=final_termination,
         )
 
-        human.initiate_chat(
-            final_manager,
-            message=f"Here are the team analyses for {symbol}:\n\n{combined_analysis}\n\n"
-                    f"Head Coach, make your final trading decision.",
+        final_task = (
+            f"Here are the team analyses for {symbol}:\n\n{combined_analysis}\n\n"
+            f"Head Coach, make your final trading decision."
         )
+
+        async for message in final_team.run_stream(task=final_task):
+            if hasattr(message, "source") and hasattr(message, "content"):
+                print(f"\n{message.content}")
 
     print(f"\n{'='*60}")
     print("  Analysis Complete")
@@ -178,4 +186,4 @@ if __name__ == "__main__":
     parser.add_argument("--test", action="store_true", help="Run in test mode (5 agents)")
     args = parser.parse_args()
 
-    run_analysis(symbol=args.symbol, test_mode=args.test)
+    asyncio.run(run_analysis(symbol=args.symbol, test_mode=args.test))
