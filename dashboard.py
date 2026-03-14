@@ -243,7 +243,8 @@ def get_latest_report():
 
 def regime_badge(r):
     if not r: return '<span class="badge badge-gray">Unknown</span>'
-    rl = r.lower()
+    if isinstance(r, dict): r = r.get("regime", "Unknown")
+    rl = str(r).lower()
     if "strong" in rl and "bull" in rl: return f'<span class="badge badge-green">{r.replace("_"," ").title()}</span>'
     if "bull" in rl: return f'<span class="badge badge-green">{r.replace("_"," ").title()}</span>'
     if "strong" in rl and "bear" in rl: return f'<span class="badge badge-red">{r.replace("_"," ").title()}</span>'
