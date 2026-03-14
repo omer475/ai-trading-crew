@@ -274,6 +274,225 @@ def regime_badge(r):
     return f'<span class="badge badge-gray">{r.replace("_"," ").title()}</span>'
 
 
+def render_stock_detail(tk, pick=None, raw=None, key_prefix="detail"):
+    """Render a full stock analysis page. Used by both Overview and Top Picks."""
+    try:
+        sdf = get_stock_data(tk, "2y", "1d")
+        info = get_stock_info(tk)
+        fin = get_financials(tk)
+        if sdf.empty:
+            st.warning(f"No data available for {tk}")
+            return
+    except Exception as e:
+        st.error(f"Could not load data for {tk}")
+        return
+
+    sdf = calc_indicators(sdf)
+    curr = sdf["Close"].iloc[-1]
+
+    # ── Header ──
+    prev = sdf["Close"].iloc[-2] if len(sdf) > 1 else curr
+    ch = curr - prev
+    ch_pct = ch / prev * 100
+    ch_color = "var(--green)" if ch >= 0 else "var(--red)"
+    arrow = "+" if ch >= 0 else ""
+
+    st.markdown(f"""<div class="pick-header">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+                <div style="font-size:28px;font-weight:700;margin-bottom:4px">{info.get("shortName", tk)}</div>
+                <div style="font-size:14px;color:rgba(255,255,255,0.5)">{tk} &middot; {info.get("sector","")} &middot; {info.get("industry","")}</div>
+            </div>
+            <div style="text-align:right">
+                <div class="value-xl">${curr:.2f}</div>
+                <div style="font-size:14px;color:{'rgba(52,199,89,0.9)' if ch >= 0 else 'rgba(255,59,48,0.9)'};margin-top:4px">{arrow}{ch:.2f} ({arrow}{ch_pct:.2f}%)</div>
+            </div>
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+    # ── AI Reasoning (if from a pick) ──
+    if pick and pick.get("reason"):
+        st.markdown(f"""<div class="reasoning-box">
+            <div class="label" style="color:#1565c0;margin-bottom:10px">WHY THIS STOCK WAS PICKED</div>
+            <p>{pick["reason"]}</p>
+        </div>""", unsafe_allow_html=True)
+
+    # ── Trade Plan (if from a pick) ──
+    if pick:
+        price = pick.get("price", curr)
+        entry_lo = pick.get("entry_low") or price * 0.95
+        entry_hi = pick.get("entry_high") or price * 1.02
+        sl = pick.get("stop_loss") or price * 0.85
+        tgt = pick.get("target") or price * 1.40
+        upside = ((tgt - price) / price * 100) if price else 0
+        downside = ((price - sl) / price * 100) if price else 0
+        rr = upside / downside if downside > 0 else 0
+        hold = pick.get("hold_period", "4-8 months")
+        conf = pick.get("confidence", 0)
+
+        tpc = st.columns(5)
+        with tpc[0]: st.markdown(metric_card("Entry Range", f"${entry_lo:.2f} – ${entry_hi:.2f}", "blue"), unsafe_allow_html=True)
+        with tpc[1]: st.markdown(metric_card("Target", f"${tgt:.2f}", "green", f"+{upside:.1f}%"), unsafe_allow_html=True)
+        with tpc[2]: st.markdown(metric_card("Stop Loss", f"${sl:.2f}", "red", f"-{downside:.1f}%"), unsafe_allow_html=True)
+        with tpc[3]: st.markdown(metric_card("Risk/Reward", f"{rr:.1f}x", "green" if rr >= 2 else "orange" if rr >= 1 else "red"), unsafe_allow_html=True)
+        with tpc[4]: st.markdown(metric_card("Hold", hold, "purple"), unsafe_allow_html=True)
+        st.markdown("")
+
+    # ── Scanner signals (if from a pick) ──
+    if raw and raw.get("scanner_signals"):
+        signals = raw["scanner_signals"]
+        sg = st.columns(6)
+        rsi_v = signals.get("rsi", 50)
+        with sg[0]: st.markdown(metric_card("RSI", f"{rsi_v:.0f}", "green" if rsi_v < 30 else "red" if rsi_v > 70 else None, "Oversold" if rsi_v < 30 else "Overbought" if rsi_v > 70 else "Neutral"), unsafe_allow_html=True)
+        with sg[1]: st.markdown(metric_card("P/E", f"{signals.get('pe_ratio',0):.1f}" if signals.get("pe_ratio") else "—"), unsafe_allow_html=True)
+        with sg[2]: st.markdown(metric_card("Fwd P/E", f"{signals.get('forward_pe',0):.1f}" if signals.get("forward_pe") else "—"), unsafe_allow_html=True)
+        with sg[3]: st.markdown(metric_card("Rev Growth", f"{signals.get('revenue_growth',0)*100:.1f}%" if signals.get("revenue_growth") else "—", "green" if (signals.get("revenue_growth") or 0) > 0.1 else None), unsafe_allow_html=True)
+        with sg[4]: st.markdown(metric_card("Margins", f"{signals.get('profit_margins',0)*100:.1f}%" if signals.get("profit_margins") else "—"), unsafe_allow_html=True)
+        with sg[5]: st.markdown(metric_card("P/B", f"{signals.get('price_to_book',0):.2f}" if signals.get("price_to_book") else "—"), unsafe_allow_html=True)
+        st.markdown("")
+
+    # ── Sub-tabs ──
+    t1, t2, t3, t4, t5 = st.tabs(["Chart", "Fundamentals", "Financial Health", "Statements", "About & Verdicts"])
+
+    with t1:
+        st.plotly_chart(create_chart(sdf, tk, 520), use_container_width=True)
+        h52 = info.get("fiftyTwoWeekHigh", 0) or 0
+        l52 = info.get("fiftyTwoWeekLow", 0) or 0
+        sma50 = sdf["SMA_50"].iloc[-1] if "SMA_50" in sdf else 0
+        sma200 = sdf["SMA_200"].iloc[-1] if "SMA_200" in sdf else 0
+        rsi_v = sdf["RSI"].iloc[-1] if "RSI" in sdf else 50
+        pc = st.columns(6)
+        for j, (lbl, val) in enumerate([("52W High", f"${h52:.2f}"), ("52W Low", f"${l52:.2f}"), ("SMA 50", f"${sma50:.2f}"), ("SMA 200", f"${sma200:.2f}"), ("RSI", f"{rsi_v:.0f}"), ("Beta", f"{info.get('beta',0):.2f}" if info.get('beta') else "—")]):
+            with pc[j]:
+                st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-md" style="margin-top:4px">{val}</div></div>', unsafe_allow_html=True)
+
+    with t2:
+        st.markdown('<div class="section-title" style="margin-top:8px">Valuation</div>', unsafe_allow_html=True)
+        vc = st.columns(6)
+        for j, (lbl, key) in enumerate([("P/E", "trailingPE"), ("Fwd P/E", "forwardPE"), ("PEG", "pegRatio"), ("P/B", "priceToBook"), ("P/S", "priceToSalesTrailing12Months"), ("EV/EBITDA", "enterpriseToEbitda")]):
+            with vc[j]:
+                v = info.get(key)
+                st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">{f"{v:.2f}" if v else "—"}</div></div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="section-title">Profitability</div>', unsafe_allow_html=True)
+        pf = st.columns(5)
+        for j, (lbl, key, g, b) in enumerate([("Gross Margin", "grossMargins", 0.4, 0.2), ("Op Margin", "operatingMargins", 0.2, 0.1), ("Net Margin", "profitMargins", 0.15, 0.05), ("ROE", "returnOnEquity", 0.15, 0.08), ("ROA", "returnOnAssets", 0.08, 0.03)]):
+            with pf[j]:
+                v = info.get(key)
+                dot = health_dot(v, g, b, True) if v else ""
+                st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">{dot} {pct(v)}</div></div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="section-title">Growth & Income</div>', unsafe_allow_html=True)
+        gi = st.columns(5)
+        with gi[0]: st.markdown(metric_card("Rev Growth", pct(info.get("revenueGrowth")), "green" if (info.get("revenueGrowth") or 0) > 0.1 else None), unsafe_allow_html=True)
+        with gi[1]: st.markdown(metric_card("Revenue", fmt(info.get("totalRevenue"))), unsafe_allow_html=True)
+        with gi[2]: st.markdown(metric_card("EPS", f"${info['trailingEps']:.2f}" if info.get("trailingEps") else "—"), unsafe_allow_html=True)
+        with gi[3]:
+            dy = info.get("dividendYield")
+            st.markdown(metric_card("Div Yield", f"{dy*100:.2f}%" if dy else "—", "green" if dy and dy > 0.02 else None), unsafe_allow_html=True)
+        with gi[4]: st.markdown(metric_card("Market Cap", fmt(info.get("marketCap")), "blue"), unsafe_allow_html=True)
+
+        if not fin["income"].empty:
+            inc = fin["income"]
+            rev_r = next((x for x in inc.index if "revenue" in str(x).lower() and "total" in str(x).lower()), None)
+            ni_r = next((x for x in inc.index if "net income" in str(x).lower()), None)
+            if rev_r:
+                st.markdown('<div class="section-title">Revenue & Earnings</div>', unsafe_allow_html=True)
+                rd = inc.loc[rev_r].dropna().sort_index()
+                fig_r = go.Figure()
+                fig_r.add_trace(go.Bar(x=[d.strftime("%b %Y") if hasattr(d, "strftime") else str(d) for d in rd.index], y=rd.values, name="Revenue", marker_color="#007aff"))
+                if ni_r:
+                    nd = inc.loc[ni_r].dropna().sort_index()
+                    fig_r.add_trace(go.Bar(x=[d.strftime("%b %Y") if hasattr(d, "strftime") else str(d) for d in nd.index], y=nd.values, name="Net Income", marker_color="#34c759"))
+                fig_r.update_layout(template="plotly_white", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=300, barmode="group", legend=dict(orientation="h"), margin=dict(l=50, r=20, t=10, b=40), font=dict(family="Inter", color="#1d1d1f"))
+                fig_r.update_xaxes(gridcolor="#f5f5f7"); fig_r.update_yaxes(gridcolor="#f5f5f7")
+                st.plotly_chart(fig_r, use_container_width=True)
+
+    with t3:
+        st.markdown('<div class="section-title" style="margin-top:8px">Balance Sheet</div>', unsafe_allow_html=True)
+        bs = st.columns(6)
+        cash = info.get("totalCash", 0) or 0
+        debt = info.get("totalDebt", 0) or 0
+        with bs[0]: st.markdown(metric_card("Cash", fmt(cash), "green"), unsafe_allow_html=True)
+        with bs[1]: st.markdown(metric_card("Debt", fmt(debt), "red" if debt > cash else None), unsafe_allow_html=True)
+        with bs[2]: st.markdown(metric_card("Net", fmt(cash - debt), "green" if cash > debt else "red"), unsafe_allow_html=True)
+        with bs[3]:
+            de = info.get("debtToEquity")
+            st.markdown(f'<div class="card-sm"><div class="label">D/E</div><div class="value-lg" style="margin-top:4px">{health_dot(de, 50, 100, False) if de else ""} {f"{de:.0f}" if de else "—"}</div></div>', unsafe_allow_html=True)
+        with bs[4]:
+            cr = info.get("currentRatio")
+            st.markdown(f'<div class="card-sm"><div class="label">Current</div><div class="value-lg" style="margin-top:4px">{health_dot(cr, 1.5, 1.0, True) if cr else ""} {f"{cr:.2f}" if cr else "—"}</div></div>', unsafe_allow_html=True)
+        with bs[5]:
+            fcf_v = info.get("freeCashflow", 0) or 0
+            st.markdown(metric_card("FCF", fmt(fcf_v), "green" if fcf_v > 0 else "red"), unsafe_allow_html=True)
+
+        st.markdown('<div class="section-title">Risk</div>', unsafe_allow_html=True)
+        rets = sdf["Close"].pct_change().dropna()
+        v20 = rets.tail(20).std() * np.sqrt(252) * 100
+        mdd = ((sdf["Close"] / sdf["Close"].cummax()) - 1).min() * 100
+        sharpe = (rets.mean() * 252) / (rets.std() * np.sqrt(252)) if rets.std() > 0 else 0
+        rm = st.columns(4)
+        with rm[0]: st.markdown(metric_card("Volatility", f"{v20:.1f}%"), unsafe_allow_html=True)
+        with rm[1]: st.markdown(metric_card("Max Drawdown", f"{mdd:.1f}%", "red" if mdd < -30 else None), unsafe_allow_html=True)
+        with rm[2]: st.markdown(metric_card("Sharpe", f"{sharpe:.2f}", "green" if sharpe > 0.5 else None), unsafe_allow_html=True)
+        with rm[3]:
+            rec = (info.get("recommendationKey", "") or "").replace("_", " ").title()
+            st.markdown(metric_card("Analysts", rec or "—", "green" if "buy" in rec.lower() else "red" if "sell" in rec.lower() else "orange"), unsafe_allow_html=True)
+
+        st.markdown('<div class="section-title">Analyst Targets</div>', unsafe_allow_html=True)
+        at = st.columns(3)
+        with at[0]: st.markdown(metric_card("Low", f"${info.get('targetLowPrice', 0):.2f}" if info.get("targetLowPrice") else "—"), unsafe_allow_html=True)
+        with at[1]: st.markdown(metric_card("Mean", f"${info.get('targetMeanPrice', 0):.2f}" if info.get("targetMeanPrice") else "—", "blue"), unsafe_allow_html=True)
+        with at[2]: st.markdown(metric_card("High", f"${info.get('targetHighPrice', 0):.2f}" if info.get("targetHighPrice") else "—"), unsafe_allow_html=True)
+
+    with t4:
+        def _show_stmt(title, df_raw, keys):
+            st.markdown(f'<div class="section-title" style="margin-top:8px">{title}</div>', unsafe_allow_html=True)
+            if df_raw.empty:
+                st.info("No data"); return
+            d = df_raw.iloc[:, :6].copy()
+            d.columns = [c.strftime("%b %d, %Y") if hasattr(c, "strftime") else str(c) for c in d.columns]
+            rows = [i for i in d.index if any(k in str(i).lower() for k in keys)]
+            st.dataframe((d.loc[rows] if rows else d.head(15)).style.format(lambda x: fmt(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), use_container_width=True)
+        _show_stmt("Income Statement", fin["income"], ["total revenue", "gross profit", "operating income", "net income", "ebitda", "diluted eps", "research", "interest"])
+        _show_stmt("Balance Sheet", fin["balance"], ["total assets", "total liab", "stockholder", "current assets", "current liab", "cash and cash", "total debt", "retained"])
+        _show_stmt("Cash Flow", fin["cashflow"], ["operating cash", "free cash", "capital expend", "depreciation", "stock based", "repurchase", "dividends"])
+
+    with t5:
+        if raw and raw.get("agent_verdicts"):
+            st.markdown('<div class="section-title" style="margin-top:8px">Agent Analysis</div>', unsafe_allow_html=True)
+            for ag in raw["agent_verdicts"]:
+                a_name = ag.get("name", "Agent")
+                a_v = ag.get("verdict", "WATCH")
+                a_conf = ag.get("confidence", 0)
+                if a_conf <= 1: a_conf *= 100
+                a_reason = ag.get("reasoning", "")
+                border = "#34c759" if a_v == "BUY" else "#ff3b30" if a_v == "PASS" else "#ff9500"
+                badge_cls = "badge-green" if a_v == "BUY" else "badge-red" if a_v == "PASS" else "badge-orange"
+                st.markdown(f"""<div class="card" style="border-left:4px solid {border};margin-bottom:12px">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <div><span style="font-weight:600;font-size:16px">{a_name}</span> <span class="badge {badge_cls}" style="margin-left:8px">{a_v}</span></div>
+                        <span class="caption">{a_conf:.0f}%</span>
+                    </div>
+                    {"<div style='margin-top:12px;font-size:14px;color:#424245;line-height:1.7'>" + a_reason + "</div>" if a_reason else ""}
+                </div>""", unsafe_allow_html=True)
+        else:
+            st.info("Run a full scan (without --skip-ai) to see agent analysis.")
+
+        desc = info.get("longBusinessSummary", "")
+        if desc:
+            st.markdown('<div class="section-title">About</div>', unsafe_allow_html=True)
+            emp = f'{info["fullTimeEmployees"]:,}' if isinstance(info.get("fullTimeEmployees"), (int, float)) else '—'
+            st.markdown(f"""<div class="card"><div style="font-size:14px;color:#424245;line-height:1.7">{desc}</div>
+                <div style="margin-top:16px;display:flex;gap:24px;flex-wrap:wrap">
+                    <div><span class="label">Industry</span><br><span class="value-sm">{info.get("industry", "—")}</span></div>
+                    <div><span class="label">Employees</span><br><span class="value-sm">{emp}</span></div>
+                    <div><span class="label">Country</span><br><span class="value-sm">{info.get("country", "—")}</span></div>
+                    <div><span class="label">Website</span><br><span class="value-sm">{info.get("website", "—")}</span></div>
+                </div>
+            </div>""", unsafe_allow_html=True)
+
+
 # ═══ NAV ═════════════════════════════════════════════════════════════
 st.markdown("""<div style="display:flex;align-items:center;justify-content:space-between;padding:20px 0;border-bottom:1px solid #e8e8ed;margin-bottom:32px">
     <div><div style="font-size:20px;font-weight:700;color:#1d1d1f;letter-spacing:-0.5px">AI Trading Crew</div>
@@ -300,25 +519,34 @@ with tab_home:
 
         if picks:
             st.markdown('<div class="section-title">Top Recommendations</div>', unsafe_allow_html=True)
-            st.markdown('<div class="section-sub">AI-selected from 1,003 stocks. Updated every 2 weeks.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-sub">AI-selected from 1,003 stocks. Click any stock to see full analysis.</div>', unsafe_allow_html=True)
+
+            # Stock selector cards
             cols = st.columns(min(len(picks), 3))
             for i, raw_pick in enumerate(picks[:3]):
                 with cols[i]:
                     pick = normalize_pick(raw_pick)
                     tk = pick["ticker"]
                     conf = pick["confidence"]
-                    reason = pick["reason"]
                     p_color = "green" if conf >= 75 else "orange" if conf >= 60 else "red"
                     st.markdown(f"""<div class="card">
                         <div class="caption">#{i+1} Pick</div>
                         <div class="value-lg" style="margin:6px 0 2px">{pick["name"] or tk}</div>
-                        <div class="caption">{tk} &middot; {pick["sector"]}</div>
-                        <div class="value-xl" style="margin:16px 0 12px">${pick["price"]:.2f}</div>
-                        <div class="label">Confidence</div>
+                        <div class="caption">{tk}</div>
+                        <div class="value-xl" style="margin:16px 0 8px">${pick["price"]:.2f}</div>
                         {progress_bar(conf, 100, p_color)}
-                        <div class="caption" style="margin-top:6px">{conf:.0f}%</div>
-                        <div style="margin-top:16px;font-size:14px;color:#424245;line-height:1.6">{reason[:180]}{'...' if len(reason)>180 else ''}</div>
+                        <div class="caption" style="margin-top:4px">{conf:.0f}% confidence</div>
                     </div>""", unsafe_allow_html=True)
+                    if st.button(f"View Analysis", key=f"overview_btn_{i}", use_container_width=True):
+                        st.session_state["overview_selected"] = i
+
+            # Show full analysis for selected stock
+            sel = st.session_state.get("overview_selected")
+            if sel is not None and sel < len(picks):
+                st.markdown("---")
+                raw_pick = picks[sel]
+                pick = normalize_pick(raw_pick)
+                render_stock_detail(pick["ticker"], pick=pick, raw=raw_pick, key_prefix=f"overview_{sel}")
     else:
         st.markdown("""<div style="text-align:center;padding:100px 0">
             <div class="hero-title">AI Trading Crew</div>
@@ -336,380 +564,20 @@ with tab_picks:
         st.markdown(f'<div class="section-sub">{len(picks)} stocks from {report.get("stocks_scanned",1003):,} scanned on {report.get("scan_date","—")}</div>', unsafe_allow_html=True)
 
         # ── Dropdown selector ──
-        pick_options = []
+        pick_options_2 = []
         for i, rp in enumerate(picks):
             np_ = normalize_pick(rp)
-            pick_options.append(f"#{i+1} — {np_['name'] or np_['ticker']} ({np_['ticker']}) — {np_['confidence']:.0f}%")
-        selected_idx = st.selectbox("Select a pick", range(len(picks)), format_func=lambda x: pick_options[x], label_visibility="collapsed")
+            pick_options_2.append(f"#{i+1} — {np_['name'] or np_['ticker']} ({np_['ticker']}) — {np_['confidence']:.0f}%")
+        selected_idx = st.selectbox("Select a pick", range(len(picks)), format_func=lambda x: pick_options_2[x], label_visibility="collapsed")
 
         raw = picks[selected_idx]
         pick = normalize_pick(raw)
-        tk = pick["ticker"]
-        name = pick["name"] or tk
-        price = pick["price"]
-        conf = pick["confidence"]
-        entry_lo = pick["entry_low"] or price * 0.95
-        entry_hi = pick["entry_high"] or price * 1.02
-        sl = pick["stop_loss"] or price * 0.85
-        tgt = pick["target"] or price * 1.40
-        reason = pick["reason"]
-        agents = pick.get("agent_verdicts") or pick.get("agents_agreed", [])
-        hold = pick["hold_period"]
-        sector = pick["sector"]
-        market = pick["market"]
-        upside = ((tgt - price) / price * 100) if price else 0
-        downside = ((price - sl) / price * 100) if price else 0
-        rr = upside / downside if downside > 0 else 0
+        render_stock_detail(pick["ticker"], pick=pick, raw=raw, key_prefix=f"picks_{selected_idx}")
 
-        # ── Hero Header (dark gradient card) ──
-        p_color = "green" if conf >= 75 else "orange" if conf >= 60 else "red"
-        st.markdown(f"""<div class="pick-header">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start">
-                <div>
-                    <div class="label">#{selected_idx+1} RECOMMENDATION</div>
-                    <div style="font-size:28px;font-weight:700;margin:8px 0 4px">{name}</div>
-                    <div style="font-size:14px;color:rgba(255,255,255,0.5)">{tk} &middot; {sector} &middot; {market}</div>
-                </div>
-                <div style="text-align:right">
-                    <div class="value-xl">${price:.2f}</div>
-                    <div style="margin-top:8px;min-width:160px">{progress_bar(conf, 100, p_color)}</div>
-                    <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px">{conf:.0f}% confidence</div>
-                </div>
-            </div>
-        </div>""", unsafe_allow_html=True)
-
-        # ── Why Picked (blue reasoning box) ──
-        if reason:
-            st.markdown(f"""<div class="reasoning-box">
-                <div class="label" style="color:#1565c0;margin-bottom:10px">WHY THIS STOCK WAS PICKED</div>
-                <p>{reason}</p>
-            </div>""", unsafe_allow_html=True)
-
-        # ── Trade Plan (5 colored metric cards) ──
-        tp1, tp2, tp3, tp4, tp5 = st.columns(5)
-        with tp1:
-            st.markdown(metric_card("Entry Range", f"${entry_lo:.2f}–${entry_hi:.2f}", "blue"), unsafe_allow_html=True)
-        with tp2:
-            st.markdown(metric_card("Target Price", f"${tgt:.2f}", "green", f"+{upside:.1f}% upside"), unsafe_allow_html=True)
-        with tp3:
-            st.markdown(metric_card("Stop Loss", f"${sl:.2f}", "red", f"-{downside:.1f}% risk"), unsafe_allow_html=True)
-        with tp4:
-            rr_color = "green" if rr >= 2 else "orange" if rr >= 1 else "red"
-            st.markdown(metric_card("Risk / Reward", f"{rr:.1f}x", rr_color), unsafe_allow_html=True)
-        with tp5:
-            st.markdown(metric_card("Hold Period", hold, "purple"), unsafe_allow_html=True)
-
-        st.markdown("")
-
-        # ── Scanner Signals (6 cards) ──
-        scanner = raw.get("scanner_signals", {})
-        if scanner:
-            st.markdown('<div class="section-title" style="margin-top:0">Scanner Signals</div>', unsafe_allow_html=True)
-            sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
-            sig_rsi = scanner.get("rsi", "—")
-            sig_pe = scanner.get("pe", scanner.get("p_e", "—"))
-            sig_fwd_pe = scanner.get("forward_pe", scanner.get("fwd_pe", "—"))
-            sig_rev_growth = scanner.get("revenue_growth", scanner.get("rev_growth", "—"))
-            sig_margins = scanner.get("margins", scanner.get("gross_margin", "—"))
-            sig_pb = scanner.get("pb", scanner.get("p_b", "—"))
-            sig_items = [
-                ("RSI", sig_rsi, sc1),
-                ("P/E", sig_pe, sc2),
-                ("Forward P/E", sig_fwd_pe, sc3),
-                ("Revenue Growth", sig_rev_growth, sc4),
-                ("Margins", sig_margins, sc5),
-                ("P/B", sig_pb, sc6),
-            ]
-            for lbl, val, col in sig_items:
-                with col:
-                    display_val = val if val != "—" else "—"
-                    if isinstance(display_val, float):
-                        display_val = f"{display_val:.2f}"
-                    st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">{display_val}</div></div>', unsafe_allow_html=True)
-
-        # ── Fetch live data ──
-        try:
-            sdf = get_stock_data(tk, "2y", "1d")
-            info = get_stock_info(tk)
-            fin = get_financials(tk)
-            ok = not sdf.empty
-        except:
-            ok = False; sdf = pd.DataFrame(); info = {}; fin = {"income": pd.DataFrame(), "balance": pd.DataFrame(), "cashflow": pd.DataFrame()}
-
-        if ok:
-            sdf = calc_indicators(sdf)
-            curr = sdf["Close"].iloc[-1]
-
-            t_chart, t_fund, t_health, t_statements, t_about = st.tabs([
-                "Chart", "Fundamentals", "Financial Health", "Statements", "About & Verdicts"
-            ])
-
-            # ════════════════════════════════════════════
-            # CHART TAB
-            # ════════════════════════════════════════════
-            with t_chart:
-                st.plotly_chart(create_chart(sdf, tk, 520), use_container_width=True)
-
-                # Price context row
-                h52 = info.get("fiftyTwoWeekHigh", 0) or 0
-                l52 = info.get("fiftyTwoWeekLow", 0) or 0
-                sma50 = sdf["SMA_50"].iloc[-1] if "SMA_50" in sdf else 0
-                sma200 = sdf["SMA_200"].iloc[-1] if "SMA_200" in sdf else 0
-                rsi_val = sdf["RSI"].iloc[-1] if "RSI" in sdf else 50
-                macd = sdf["MACD"].iloc[-1] if "MACD" in sdf else 0
-
-                pc = st.columns(6)
-                labels = ["52W High", "52W Low", "SMA 50", "SMA 200", "RSI (14)", "MACD"]
-                vals = [f"${h52:.2f}", f"${l52:.2f}", f"${sma50:.2f}", f"${sma200:.2f}", f"{rsi_val:.0f}", f"{macd:.3f}"]
-                dots = [
-                    health_dot(curr, h52 * 0.95, h52 * 0.85),
-                    health_dot(curr, l52 * 1.15, l52 * 1.05),
-                    health_dot(1 if curr > sma50 else 0, 1, 0.5),
-                    health_dot(1 if curr > sma200 else 0, 1, 0.5),
-                    health_dot(rsi_val, 40, 30) if rsi_val < 50 else health_dot(100 - rsi_val, 40, 30),
-                    health_dot(1 if macd > 0 else 0, 1, 0.5),
-                ]
-                for j in range(6):
-                    with pc[j]:
-                        st.markdown(f'<div class="card-sm"><div class="label">{labels[j]}</div><div class="value-md" style="margin-top:4px">{dots[j]} {vals[j]}</div></div>', unsafe_allow_html=True)
-
-            # ════════════════════════════════════════════
-            # FUNDAMENTALS TAB
-            # ════════════════════════════════════════════
-            with t_fund:
-
-                # Valuation
-                st.markdown('<div class="section-title" style="margin-top:8px">Valuation</div>', unsafe_allow_html=True)
-                vc = st.columns(6)
-                val_items = [
-                    ("P/E (TTM)", info.get("trailingPE"), None),
-                    ("Forward P/E", info.get("forwardPE"), None),
-                    ("PEG Ratio", info.get("pegRatio"), None),
-                    ("P/B Ratio", info.get("priceToBook"), None),
-                    ("P/S Ratio", info.get("priceToSalesTrailing12Months"), None),
-                    ("EV/EBITDA", info.get("enterpriseToEbitda"), None),
-                ]
-                for j, (lbl, val, _) in enumerate(val_items):
-                    with vc[j]:
-                        v = f"{val:.2f}" if val else "—"
-                        st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">{v}</div></div>', unsafe_allow_html=True)
-
-                # Profitability with health dots
-                st.markdown('<div class="section-title">Profitability</div>', unsafe_allow_html=True)
-                prof = st.columns(5)
-                prof_items = [
-                    ("Gross Margin", info.get("grossMargins"), 0.4, 0.2, True),
-                    ("Operating Margin", info.get("operatingMargins"), 0.2, 0.1, True),
-                    ("Net Margin", info.get("profitMargins"), 0.15, 0.05, True),
-                    ("ROE", info.get("returnOnEquity"), 0.15, 0.08, True),
-                    ("ROA", info.get("returnOnAssets"), 0.08, 0.03, True),
-                ]
-                for j, (lbl, val, g, b, hib) in enumerate(prof_items):
-                    with prof[j]:
-                        dot = health_dot(val, g, b, hib) if val else ""
-                        v = pct(val)
-                        st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">{dot} {v}</div></div>', unsafe_allow_html=True)
-
-                # Growth
-                st.markdown('<div class="section-title">Growth</div>', unsafe_allow_html=True)
-                gc = st.columns(5)
-                growth_items = [
-                    ("Revenue Growth", info.get("revenueGrowth"), 0.1, 0, True),
-                    ("Earnings Growth", info.get("earningsGrowth"), 0.1, 0, True),
-                    ("Revenue (TTM)", None, None, None, None),
-                    ("EPS (TTM)", None, None, None, None),
-                    ("Forward EPS", None, None, None, None),
-                ]
-                for j, (lbl, val, g, b, hib) in enumerate(growth_items):
-                    with gc[j]:
-                        if lbl == "Revenue (TTM)":
-                            st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">{fmt(info.get("totalRevenue"))}</div></div>', unsafe_allow_html=True)
-                        elif lbl == "EPS (TTM)":
-                            eps = info.get("trailingEps")
-                            st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">${eps:.2f}</div></div>' if eps else f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">—</div></div>', unsafe_allow_html=True)
-                        elif lbl == "Forward EPS":
-                            feps = info.get("forwardEps")
-                            st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">${feps:.2f}</div></div>' if feps else f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">—</div></div>', unsafe_allow_html=True)
-                        else:
-                            dot = health_dot(val, g, b, hib) if val is not None else ""
-                            st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-lg" style="margin-top:4px">{dot} {pct(val)}</div></div>', unsafe_allow_html=True)
-
-                # Dividends
-                st.markdown('<div class="section-title">Dividends & Returns</div>', unsafe_allow_html=True)
-                dc = st.columns(5)
-                dy = info.get("dividendYield")
-                dr = info.get("dividendRate")
-                pr_ = info.get("payoutRatio")
-                exd = info.get("exDividendDate")
-                avg5 = info.get("fiveYearAvgDividendYield")
-                div_vals = [
-                    ("Dividend Yield", f"{dy*100:.2f}%" if dy else "—"),
-                    ("Annual Dividend", f"${dr:.2f}" if dr else "—"),
-                    ("Payout Ratio", f"{pr_*100:.0f}%" if pr_ else "—"),
-                    ("Ex-Dividend", "—"),
-                    ("5Y Avg Yield", f"{avg5:.2f}%" if avg5 else "—"),
-                ]
-                if exd:
-                    try: div_vals[3] = ("Ex-Dividend", datetime.fromtimestamp(exd).strftime("%b %d, %Y"))
-                    except: pass
-                for j, (lbl, v) in enumerate(div_vals):
-                    with dc[j]:
-                        accent = "green" if lbl == "Dividend Yield" and dy and dy > 0.02 else None
-                        st.markdown(metric_card(lbl, v, accent), unsafe_allow_html=True)
-
-                # Enterprise Value
-                st.markdown('<div class="section-title">Enterprise Value</div>', unsafe_allow_html=True)
-                ev = st.columns(4)
-                with ev[0]: st.markdown(metric_card("Market Cap", fmt(info.get("marketCap")), "blue"), unsafe_allow_html=True)
-                with ev[1]: st.markdown(metric_card("Enterprise Value", fmt(info.get("enterpriseValue"))), unsafe_allow_html=True)
-                with ev[2]: st.markdown(metric_card("EV/Revenue", f"{info.get('enterpriseToRevenue',0):.2f}" if info.get("enterpriseToRevenue") else "—"), unsafe_allow_html=True)
-                with ev[3]:
-                    fcf = info.get("freeCashflow", 0) or 0
-                    mc = info.get("marketCap", 1) or 1
-                    st.markdown(metric_card("FCF Yield", f"{fcf/mc*100:.1f}%" if mc > 1 else "—", "green" if fcf/mc > 0.04 else None), unsafe_allow_html=True)
-
-                # Revenue chart
-                if not fin["income"].empty:
-                    inc = fin["income"]
-                    rev_r = next((x for x in inc.index if "revenue" in str(x).lower() and "total" in str(x).lower()), None)
-                    ni_r = next((x for x in inc.index if "net income" in str(x).lower()), None)
-                    if rev_r:
-                        st.markdown('<div class="section-title">Revenue & Earnings Trend</div>', unsafe_allow_html=True)
-                        rd = inc.loc[rev_r].dropna().sort_index()
-                        fig_r = go.Figure()
-                        fig_r.add_trace(go.Bar(x=[d.strftime("%b %Y") if hasattr(d, "strftime") else str(d) for d in rd.index], y=rd.values, name="Revenue", marker_color="#007aff"))
-                        if ni_r:
-                            nd = inc.loc[ni_r].dropna().sort_index()
-                            fig_r.add_trace(go.Bar(x=[d.strftime("%b %Y") if hasattr(d, "strftime") else str(d) for d in nd.index], y=nd.values, name="Net Income", marker_color="#34c759"))
-                        fig_r.update_layout(template="plotly_white", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=300, barmode="group", legend=dict(orientation="h"), margin=dict(l=50, r=20, t=10, b=40), font=dict(family="Inter", color="#1d1d1f"))
-                        fig_r.update_xaxes(gridcolor="#f5f5f7"); fig_r.update_yaxes(gridcolor="#f5f5f7")
-                        st.plotly_chart(fig_r, use_container_width=True)
-
-            # ════════════════════════════════════════════
-            # FINANCIAL HEALTH TAB
-            # ════════════════════════════════════════════
-            with t_health:
-                st.markdown('<div class="section-title" style="margin-top:8px">Balance Sheet</div>', unsafe_allow_html=True)
-                b = st.columns(6)
-                cash = info.get("totalCash", 0) or 0
-                debt = info.get("totalDebt", 0) or 0
-                net = cash - debt
-                with b[0]: st.markdown(metric_card("Total Cash", fmt(cash), "green"), unsafe_allow_html=True)
-                with b[1]: st.markdown(metric_card("Total Debt", fmt(debt), "red" if debt > cash else None), unsafe_allow_html=True)
-                with b[2]:
-                    nc_color = "green" if net > 0 else "red"
-                    st.markdown(metric_card("Net Cash/Debt", fmt(net), nc_color), unsafe_allow_html=True)
-                with b[3]:
-                    de = info.get("debtToEquity")
-                    de_dot = health_dot(de, 50, 100, False) if de else ""
-                    st.markdown(f'<div class="card-sm"><div class="label">Debt/Equity</div><div class="value-lg" style="margin-top:4px">{de_dot} {f"{de:.0f}" if de else "—"}</div></div>', unsafe_allow_html=True)
-                with b[4]:
-                    cr = info.get("currentRatio")
-                    cr_dot = health_dot(cr, 1.5, 1.0, True) if cr else ""
-                    st.markdown(f'<div class="card-sm"><div class="label">Current Ratio</div><div class="value-lg" style="margin-top:4px">{cr_dot} {f"{cr:.2f}" if cr else "—"}</div></div>', unsafe_allow_html=True)
-                with b[5]:
-                    qr = info.get("quickRatio")
-                    qr_dot = health_dot(qr, 1.0, 0.5, True) if qr else ""
-                    st.markdown(f'<div class="card-sm"><div class="label">Quick Ratio</div><div class="value-lg" style="margin-top:4px">{qr_dot} {f"{qr:.2f}" if qr else "—"}</div></div>', unsafe_allow_html=True)
-
-                st.markdown('<div class="section-title">Cash Flow</div>', unsafe_allow_html=True)
-                cf = st.columns(4)
-                ocf = info.get("operatingCashflow", 0) or 0
-                fcf = info.get("freeCashflow", 0) or 0
-                rev_ttm = info.get("totalRevenue", 1) or 1
-                with cf[0]: st.markdown(metric_card("Operating Cash Flow", fmt(ocf), "green" if ocf > 0 else "red"), unsafe_allow_html=True)
-                with cf[1]: st.markdown(metric_card("Free Cash Flow", fmt(fcf), "green" if fcf > 0 else "red"), unsafe_allow_html=True)
-                with cf[2]: st.markdown(metric_card("FCF Margin", f"{fcf/rev_ttm*100:.1f}%" if rev_ttm > 1 else "—"), unsafe_allow_html=True)
-                with cf[3]: st.markdown(metric_card("OCF/Debt", f"{ocf/debt:.2f}x" if debt > 0 else "No Debt", "green" if debt == 0 or (debt > 0 and ocf/debt > 0.3) else None), unsafe_allow_html=True)
-
-                # Volatility & Risk
-                st.markdown('<div class="section-title">Volatility & Risk</div>', unsafe_allow_html=True)
-                rets = sdf["Close"].pct_change().dropna()
-                v20 = rets.tail(20).std() * np.sqrt(252) * 100
-                v60 = rets.tail(60).std() * np.sqrt(252) * 100
-                mdd = ((sdf["Close"] / sdf["Close"].cummax()) - 1).min() * 100
-                sharpe = (rets.mean() * 252) / (rets.std() * np.sqrt(252)) if rets.std() > 0 else 0
-                beta = info.get("beta")
-                rc = st.columns(5)
-                with rc[0]: st.markdown(metric_card("20d Volatility", f"{v20:.1f}%"), unsafe_allow_html=True)
-                with rc[1]: st.markdown(metric_card("60d Volatility", f"{v60:.1f}%"), unsafe_allow_html=True)
-                with rc[2]: st.markdown(metric_card("Max Drawdown", f"{mdd:.1f}%", "red" if mdd < -30 else None), unsafe_allow_html=True)
-                with rc[3]: st.markdown(metric_card("Sharpe (1Y)", f"{sharpe:.2f}", "green" if sharpe > 0.5 else None), unsafe_allow_html=True)
-                with rc[4]: st.markdown(metric_card("Beta", f"{beta:.2f}" if beta else "—"), unsafe_allow_html=True)
-
-                # Analyst targets
-                st.markdown('<div class="section-title">Analyst Consensus</div>', unsafe_allow_html=True)
-                ac = st.columns(4)
-                with ac[0]: st.markdown(metric_card("Target Mean", f"${info.get('targetMeanPrice',0):.2f}" if info.get("targetMeanPrice") else "—", "blue"), unsafe_allow_html=True)
-                with ac[1]: st.markdown(metric_card("Target High", f"${info.get('targetHighPrice',0):.2f}" if info.get("targetHighPrice") else "—"), unsafe_allow_html=True)
-                with ac[2]: st.markdown(metric_card("Target Low", f"${info.get('targetLowPrice',0):.2f}" if info.get("targetLowPrice") else "—"), unsafe_allow_html=True)
-                with ac[3]:
-                    rec = (info.get("recommendationKey", "") or "").upper()
-                    rec_color = "green" if rec in ("BUY", "STRONG_BUY") else "red" if rec in ("SELL", "UNDERPERFORM") else "orange"
-                    st.markdown(metric_card("Recommendation", rec or "—", rec_color), unsafe_allow_html=True)
-
-            # ════════════════════════════════════════════
-            # STATEMENTS TAB (with dates)
-            # ════════════════════════════════════════════
-            with t_statements:
-                def show_statement(title, df_raw, key_words):
-                    st.markdown(f'<div class="section-title" style="margin-top:8px">{title}</div>', unsafe_allow_html=True)
-                    if df_raw.empty:
-                        st.info(f"No {title.lower()} data available")
-                        return
-                    display = df_raw.iloc[:, :6].copy()
-                    display.columns = [c.strftime("%b %d, %Y") if hasattr(c, "strftime") else str(c) for c in display.columns]
-                    rows = [idx for idx in display.index if any(k in str(idx).lower() for k in key_words)]
-                    show = display.loc[rows] if rows else display.head(15)
-                    st.dataframe(show.style.format(lambda x: fmt(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), use_container_width=True)
-
-                show_statement("Quarterly Income Statement", fin["income"],
-                    ["total revenue", "cost of revenue", "gross profit", "operating income", "operating expense", "net income", "ebitda", "diluted eps", "basic eps", "research", "interest expense", "tax"])
-                show_statement("Quarterly Balance Sheet", fin["balance"],
-                    ["total assets", "total liab", "stockholder", "current assets", "current liab", "cash and cash", "total debt", "long term debt", "retained", "goodwill", "net tangible"])
-                show_statement("Quarterly Cash Flow", fin["cashflow"],
-                    ["operating cash", "free cash", "capital expend", "depreciation", "stock based", "change in working", "repurchase", "dividends", "issuance"])
-
-            # ════════════════════════════════════════════
-            # ABOUT & VERDICTS TAB
-            # ════════════════════════════════════════════
-            with t_about:
-                # Agent verdict cards
-                if agents:
-                    st.markdown('<div class="section-title" style="margin-top:8px">Agent Verdicts</div>', unsafe_allow_html=True)
-                    for ag in agents:
-                        a_name = ag.get("name", "Agent")
-                        a_v = ag.get("verdict", "WATCH")
-                        a_conf = ag.get("confidence", 0)
-                        if isinstance(a_conf, (int, float)) and a_conf <= 1:
-                            a_conf = a_conf * 100
-                        a_reason = ag.get("reasoning", "")
-                        border = "#34c759" if a_v == "BUY" else "#ff3b30" if a_v == "PASS" else "#ff9500"
-                        badge_cls = "badge-green" if a_v == "BUY" else "badge-red" if a_v == "PASS" else "badge-orange"
-                        st.markdown(f"""<div class="card" style="border-left:4px solid {border};margin-bottom:12px">
-                            <div style="display:flex;justify-content:space-between;align-items:center">
-                                <div><span style="font-weight:600;font-size:16px">{a_name}</span> <span class="badge {badge_cls}" style="margin-left:8px">{a_v}</span></div>
-                                <span class="caption">Confidence: {a_conf:.0f}%</span>
-                            </div>
-                            {"<div style='margin-top:12px;font-size:14px;color:#424245;line-height:1.7'>" + a_reason + "</div>" if a_reason else ""}
-                        </div>""", unsafe_allow_html=True)
-                else:
-                    st.info("Agent verdicts appear after running a full scan with AI enabled.")
-
-                desc = info.get("longBusinessSummary", "")
-                if desc:
-                    st.markdown('<div class="section-title">About</div>', unsafe_allow_html=True)
-                    st.markdown(f"""<div class="card"><div style="font-size:14px;color:#424245;line-height:1.7">{desc}</div>
-                        <div style="margin-top:16px;display:flex;gap:24px;flex-wrap:wrap">
-                            <div><span class="label">Industry</span><br><span class="value-sm">{info.get("industry", "—")}</span></div>
-                            <div><span class="label">Employees</span><br><span class="value-sm">{f'{info["fullTimeEmployees"]:,}' if isinstance(info.get("fullTimeEmployees"), (int, float)) else '—'}</span></div>
-                            <div><span class="label">Country</span><br><span class="value-sm">{info.get("country", "—")}</span></div>
-                            <div><span class="label">Website</span><br><span class="value-sm">{info.get("website", "—")}</span></div>
-                        </div>
-                    </div>""", unsafe_allow_html=True)
     else:
         st.markdown('<div style="text-align:center;padding:60px 0"><div style="font-size:22px;font-weight:600;color:#1d1d1f">No picks yet</div><div class="caption" style="margin-top:8px">Run a scan to get recommendations.</div></div>', unsafe_allow_html=True)
 
+# old code removed
 
 # ═══ TAB 3: STOCK DETAIL ════════════════════════════════════════════
 with tab_stock:
