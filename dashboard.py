@@ -529,16 +529,17 @@ with tab_home:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# TAB 2: TOP PICKS
+# TAB 2: TOP PICKS — Full Detail for Every Persona
 # ═══════════════════════════════════════════════════════════════════════
 with tab_picks:
     report = get_latest_report()
 
     if report and report.get("picks"):
         picks = report["picks"]
+        scan_date = report.get("scan_date", "N/A")
 
         st.markdown('<div class="section-title">All Recommendations</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="section-subtitle">{len(picks)} stocks selected from {report.get("stocks_scanned", 1003):,} scanned on {report.get("scan_date", "N/A")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-subtitle">{len(picks)} stocks selected from {report.get("stocks_scanned", 1003):,} scanned on {scan_date}</div>', unsafe_allow_html=True)
 
         for i, pick in enumerate(picks):
             ticker = pick.get("ticker", "")
@@ -557,44 +558,424 @@ with tab_picks:
 
             upside = ((target - price) / price * 100) if price > 0 else 0
             risk = ((price - stop_loss) / price * 100) if price > 0 else 0
+            risk_reward = upside / risk if risk > 0 else 0
+            conf_class = "confidence-high" if confidence >= 75 else "confidence-med" if confidence >= 60 else "confidence-low"
 
             with st.expander(f"**#{i+1}  {name}** ({ticker})  —  ${price:.2f}  —  Confidence: {confidence}%", expanded=(i < 3)):
-                p1, p2 = st.columns([2, 1])
 
-                with p1:
-                    # Chart
-                    try:
-                        chart_df = get_stock_data(ticker, period="1y", interval="1d")
-                        if not chart_df.empty:
-                            chart_df = calculate_indicators(chart_df)
-                            fig = create_chart(chart_df, ticker)
-                            st.plotly_chart(fig, use_container_width=True)
-                    except Exception:
-                        st.info(f"Chart unavailable for {ticker}")
-
-                with p2:
-                    st.markdown(f"**Sector:** {sector}")
-                    st.markdown(f"**Market:** {market}")
-                    st.markdown(f"**Hold Period:** {hold_period}")
-                    st.markdown("---")
-
-                    st.metric("Entry Range", f"${entry_low:.2f} — ${entry_high:.2f}")
-                    st.metric("Target Price", f"${target:.2f}", f"+{upside:.1f}%")
-                    st.metric("Stop Loss", f"${stop_loss:.2f}", f"-{risk:.1f}%")
-
-                    st.markdown("---")
-
-                    # Agent verdicts
-                    if agents:
-                        st.markdown("**Agent Verdicts**")
-                        for agent in agents:
-                            a_name = agent.get("name", "Agent")
-                            a_verdict = agent.get("verdict", "WATCH")
-                            v_class = "verdict-buy" if a_verdict == "BUY" else "verdict-pass" if a_verdict == "PASS" else "verdict-watch"
-                            st.markdown(f'{a_name} <span class="{v_class}">{a_verdict}</span>', unsafe_allow_html=True)
-
+                # ── AI Reasoning ─────────────────────────────────
                 if reason:
-                    st.markdown(f"**Why:** {reason}")
+                    st.markdown(f"""<div class="card" style="border-left:4px solid #007aff">
+                        <div class="stat-label">AI Reasoning</div>
+                        <div style="font-size:15px;color:#1d1d1f;line-height:1.7;margin-top:8px">{reason}</div>
+                    </div>""", unsafe_allow_html=True)
+                    st.markdown("")
+
+                # ── Trade Plan ───────────────────────────────────
+                tp1, tp2, tp3, tp4, tp5 = st.columns(5)
+                with tp1:
+                    st.metric("Entry Range", f"${entry_low:.2f} — ${entry_high:.2f}")
+                with tp2:
+                    st.metric("Target Price", f"${target:.2f}", f"+{upside:.1f}%")
+                with tp3:
+                    st.metric("Stop Loss", f"${stop_loss:.2f}", f"-{risk:.1f}%")
+                with tp4:
+                    st.metric("Risk/Reward", f"{risk_reward:.1f}x")
+                with tp5:
+                    st.metric("Hold Period", hold_period)
+
+                # Confidence bar
+                st.markdown(f"""<div style="margin:8px 0 24px 0">
+                    <div class="stat-label">Confidence Score</div>
+                    <div class="confidence-bar-bg" style="height:10px;margin-top:6px">
+                        <div class="confidence-bar-fill {conf_class}" style="width:{confidence}%;height:10px"></div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:12px;color:#86868b;margin-top:4px">
+                        <span>{confidence}%</span>
+                        <span>Sector: {sector} &middot; Market: {market}</span>
+                    </div>
+                </div>""", unsafe_allow_html=True)
+
+                # ── Fetch live data for this stock ───────────────
+                try:
+                    pick_df = get_stock_data(ticker, period="2y", interval="1d")
+                    pick_info = get_stock_info(ticker)
+                    pick_fin = get_financials(ticker)
+                    has_data = not pick_df.empty
+                except Exception:
+                    has_data = False
+                    pick_df = pd.DataFrame()
+                    pick_info = {}
+                    pick_fin = {"income": pd.DataFrame(), "balance": pd.DataFrame(), "cashflow": pd.DataFrame()}
+
+                if has_data:
+                    pick_df = calculate_indicators(pick_df)
+
+                    # ── Sub-tabs for each persona's data ─────────
+                    st_chart, st_fund, st_tech, st_agents_tab = st.tabs([
+                        "Chart & Price", "Fundamentals", "Technical Analysis", "Agent Verdicts"
+                    ])
+
+                    # ──────────────────────────────────────────────
+                    # CHART & PRICE (for Trend Followers, Entry Timing)
+                    # ──────────────────────────────────────────────
+                    with st_chart:
+                        fig = create_chart(pick_df, ticker)
+                        st.plotly_chart(fig, use_container_width=True)
+
+                        # Price context
+                        curr = pick_df["Close"].iloc[-1]
+                        pc1, pc2, pc3, pc4, pc5, pc6 = st.columns(6)
+                        with pc1:
+                            st.metric("Current", f"${curr:.2f}")
+                        with pc2:
+                            h52 = pick_info.get("fiftyTwoWeekHigh", 0)
+                            st.metric("52W High", f"${h52:.2f}", f"{((curr-h52)/h52*100):.1f}%" if h52 else "")
+                        with pc3:
+                            l52 = pick_info.get("fiftyTwoWeekLow", 0)
+                            st.metric("52W Low", f"${l52:.2f}", f"+{((curr-l52)/l52*100):.1f}%" if l52 else "")
+                        with pc4:
+                            avg_vol = pick_info.get("averageVolume", 0)
+                            st.metric("Avg Volume", f"{avg_vol:,.0f}" if avg_vol else "N/A")
+                        with pc5:
+                            beta = pick_info.get("beta", 0)
+                            st.metric("Beta", f"{beta:.2f}" if beta else "N/A")
+                        with pc6:
+                            sma200 = pick_df["SMA_200"].iloc[-1] if "SMA_200" in pick_df.columns else 0
+                            pct_above = ((curr - sma200) / sma200 * 100) if sma200 else 0
+                            st.metric("vs 200 SMA", f"{pct_above:+.1f}%")
+
+                    # ──────────────────────────────────────────────
+                    # FUNDAMENTALS (for Value, Growth, Balance Sheet,
+                    # Earnings, Dividend, Sector Specialists)
+                    # ──────────────────────────────────────────────
+                    with st_fund:
+                        # ── Valuation ────────────────────────────
+                        st.markdown("#### Valuation")
+                        v1, v2, v3, v4, v5, v6 = st.columns(6)
+                        with v1:
+                            st.metric("P/E (TTM)", f"{pick_info.get('trailingPE', 0):.1f}" if pick_info.get("trailingPE") else "N/A")
+                        with v2:
+                            st.metric("Forward P/E", f"{pick_info.get('forwardPE', 0):.1f}" if pick_info.get("forwardPE") else "N/A")
+                        with v3:
+                            st.metric("PEG Ratio", f"{pick_info.get('pegRatio', 0):.2f}" if pick_info.get("pegRatio") else "N/A")
+                        with v4:
+                            st.metric("P/B Ratio", f"{pick_info.get('priceToBook', 0):.2f}" if pick_info.get("priceToBook") else "N/A")
+                        with v5:
+                            st.metric("P/S Ratio", f"{pick_info.get('priceToSalesTrailing12Months', 0):.2f}" if pick_info.get("priceToSalesTrailing12Months") else "N/A")
+                        with v6:
+                            st.metric("EV/EBITDA", f"{pick_info.get('enterpriseToEbitda', 0):.1f}" if pick_info.get("enterpriseToEbitda") else "N/A")
+
+                        # ── Profitability ────────────────────────
+                        st.markdown("#### Profitability")
+                        p1, p2, p3, p4, p5 = st.columns(5)
+                        with p1:
+                            st.metric("Gross Margin", f"{pick_info.get('grossMargins', 0)*100:.1f}%" if pick_info.get("grossMargins") else "N/A")
+                        with p2:
+                            st.metric("Operating Margin", f"{pick_info.get('operatingMargins', 0)*100:.1f}%" if pick_info.get("operatingMargins") else "N/A")
+                        with p3:
+                            st.metric("Net Margin", f"{pick_info.get('profitMargins', 0)*100:.1f}%" if pick_info.get("profitMargins") else "N/A")
+                        with p4:
+                            st.metric("ROE", f"{pick_info.get('returnOnEquity', 0)*100:.1f}%" if pick_info.get("returnOnEquity") else "N/A")
+                        with p5:
+                            st.metric("ROA", f"{pick_info.get('returnOnAssets', 0)*100:.1f}%" if pick_info.get("returnOnAssets") else "N/A")
+
+                        # ── Growth ───────────────────────────────
+                        st.markdown("#### Growth")
+                        g1, g2, g3, g4, g5 = st.columns(5)
+                        with g1:
+                            st.metric("Revenue Growth", f"{pick_info.get('revenueGrowth', 0)*100:.1f}%" if pick_info.get("revenueGrowth") else "N/A")
+                        with g2:
+                            st.metric("Earnings Growth", f"{pick_info.get('earningsGrowth', 0)*100:.1f}%" if pick_info.get("earningsGrowth") else "N/A")
+                        with g3:
+                            st.metric("Revenue (TTM)", fmt(pick_info.get("totalRevenue")))
+                        with g4:
+                            st.metric("EPS (TTM)", f"${pick_info.get('trailingEps', 0):.2f}" if pick_info.get("trailingEps") else "N/A")
+                        with g5:
+                            st.metric("Forward EPS", f"${pick_info.get('forwardEps', 0):.2f}" if pick_info.get("forwardEps") else "N/A")
+
+                        # ── Dividends & Buybacks ─────────────────
+                        st.markdown("#### Dividends & Shareholder Returns")
+                        d1, d2, d3, d4, d5 = st.columns(5)
+                        with d1:
+                            dy = pick_info.get("dividendYield")
+                            st.metric("Dividend Yield", f"{dy*100:.2f}%" if dy else "N/A")
+                        with d2:
+                            dr = pick_info.get("dividendRate")
+                            st.metric("Annual Dividend", f"${dr:.2f}" if dr else "N/A")
+                        with d3:
+                            pr = pick_info.get("payoutRatio")
+                            st.metric("Payout Ratio", f"{pr*100:.1f}%" if pr else "N/A")
+                        with d4:
+                            exd = pick_info.get("exDividendDate")
+                            if exd:
+                                from datetime import datetime as dt2
+                                try:
+                                    exd_str = dt2.fromtimestamp(exd).strftime("%Y-%m-%d")
+                                except Exception:
+                                    exd_str = str(exd)
+                                st.metric("Ex-Dividend Date", exd_str)
+                            else:
+                                st.metric("Ex-Dividend Date", "N/A")
+                        with d5:
+                            st.metric("5Y Avg Yield", f"{pick_info.get('fiveYearAvgDividendYield', 0):.2f}%" if pick_info.get("fiveYearAvgDividendYield") else "N/A")
+
+                        # ── Balance Sheet ────────────────────────
+                        st.markdown("#### Balance Sheet & Financial Health")
+                        b1, b2, b3, b4, b5, b6 = st.columns(6)
+                        with b1:
+                            st.metric("Total Cash", fmt(pick_info.get("totalCash")))
+                        with b2:
+                            st.metric("Total Debt", fmt(pick_info.get("totalDebt")))
+                        with b3:
+                            st.metric("Net Cash", fmt((pick_info.get("totalCash", 0) or 0) - (pick_info.get("totalDebt", 0) or 0)))
+                        with b4:
+                            st.metric("Debt/Equity", f"{pick_info.get('debtToEquity', 0):.0f}" if pick_info.get("debtToEquity") else "N/A")
+                        with b5:
+                            st.metric("Current Ratio", f"{pick_info.get('currentRatio', 0):.2f}" if pick_info.get("currentRatio") else "N/A")
+                        with b6:
+                            st.metric("Quick Ratio", f"{pick_info.get('quickRatio', 0):.2f}" if pick_info.get("quickRatio") else "N/A")
+
+                        # ── Cash Flow ────────────────────────────
+                        st.markdown("#### Cash Flow")
+                        cf1, cf2, cf3, cf4 = st.columns(4)
+                        with cf1:
+                            st.metric("Operating CF", fmt(pick_info.get("operatingCashflow")))
+                        with cf2:
+                            st.metric("Free Cash Flow", fmt(pick_info.get("freeCashflow")))
+                        with cf3:
+                            rev = pick_info.get("totalRevenue", 0) or 1
+                            fcf = pick_info.get("freeCashflow", 0) or 0
+                            st.metric("FCF Margin", f"{fcf/rev*100:.1f}%" if rev > 1 else "N/A")
+                        with cf4:
+                            mcap = pick_info.get("marketCap", 0) or 1
+                            st.metric("FCF Yield", f"{fcf/mcap*100:.1f}%" if mcap > 1 else "N/A")
+
+                        # ── Enterprise Value ─────────────────────
+                        st.markdown("#### Enterprise Value")
+                        ev1, ev2, ev3 = st.columns(3)
+                        with ev1:
+                            st.metric("Market Cap", fmt(pick_info.get("marketCap")))
+                        with ev2:
+                            st.metric("Enterprise Value", fmt(pick_info.get("enterpriseValue")))
+                        with ev3:
+                            st.metric("EV/Revenue", f"{pick_info.get('enterpriseToRevenue', 0):.2f}" if pick_info.get("enterpriseToRevenue") else "N/A")
+
+                        # ── Quarterly Income Statement with Dates ─
+                        st.markdown("#### Quarterly Income Statement")
+                        if not pick_fin["income"].empty:
+                            inc = pick_fin["income"].iloc[:, :6]
+                            inc.columns = [c.strftime("%b %d, %Y") if hasattr(c, "strftime") else str(c) for c in inc.columns]
+                            key_rows = []
+                            for idx in inc.index:
+                                s = str(idx).lower()
+                                if any(k in s for k in ["total revenue", "gross profit", "operating income", "net income", "ebitda", "diluted eps", "basic eps", "cost of revenue", "operating expense", "interest expense", "tax provision", "research"]):
+                                    key_rows.append(idx)
+                            if key_rows:
+                                st.dataframe(inc.loc[key_rows].style.format(lambda x: fmt(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), use_container_width=True)
+                            else:
+                                st.dataframe(inc.head(15).style.format(lambda x: fmt(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), use_container_width=True)
+
+                        # ── Quarterly Balance Sheet with Dates ────
+                        st.markdown("#### Quarterly Balance Sheet")
+                        if not pick_fin["balance"].empty:
+                            bal = pick_fin["balance"].iloc[:, :6]
+                            bal.columns = [c.strftime("%b %d, %Y") if hasattr(c, "strftime") else str(c) for c in bal.columns]
+                            key_bal = []
+                            for idx in bal.index:
+                                s = str(idx).lower()
+                                if any(k in s for k in ["total assets", "total liab", "stockholder", "current assets", "current liab", "cash and cash", "total debt", "long term debt", "short term debt", "retained", "common stock", "goodwill", "net tangible"]):
+                                    key_bal.append(idx)
+                            if key_bal:
+                                st.dataframe(bal.loc[key_bal].style.format(lambda x: fmt(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), use_container_width=True)
+                            else:
+                                st.dataframe(bal.head(15).style.format(lambda x: fmt(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), use_container_width=True)
+
+                        # ── Quarterly Cash Flow with Dates ────────
+                        st.markdown("#### Quarterly Cash Flow")
+                        if not pick_fin["cashflow"].empty:
+                            cfl = pick_fin["cashflow"].iloc[:, :6]
+                            cfl.columns = [c.strftime("%b %d, %Y") if hasattr(c, "strftime") else str(c) for c in cfl.columns]
+                            key_cf = []
+                            for idx in cfl.index:
+                                s = str(idx).lower()
+                                if any(k in s for k in ["operating cash", "free cash", "capital expend", "depreciation", "stock based", "change in working", "issuance of debt", "repurchase", "dividends"]):
+                                    key_cf.append(idx)
+                            if key_cf:
+                                st.dataframe(cfl.loc[key_cf].style.format(lambda x: fmt(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), use_container_width=True)
+                            else:
+                                st.dataframe(cfl.head(12).style.format(lambda x: fmt(x) if isinstance(x, (int, float, np.integer, np.floating)) else x), use_container_width=True)
+
+                        # ── Revenue & Earnings Chart ──────────────
+                        if not pick_fin["income"].empty:
+                            inc_raw = pick_fin["income"]
+                            rev_row = next((idx for idx in inc_raw.index if "revenue" in str(idx).lower() and "total" in str(idx).lower()), None)
+                            ni_row = next((idx for idx in inc_raw.index if "net income" in str(idx).lower()), None)
+                            if rev_row:
+                                st.markdown("#### Revenue & Earnings Trend")
+                                rev_data = inc_raw.loc[rev_row].dropna().sort_index()
+                                fig_r = go.Figure()
+                                fig_r.add_trace(go.Bar(
+                                    x=[d.strftime("%b %Y") if hasattr(d, "strftime") else str(d) for d in rev_data.index],
+                                    y=rev_data.values, name="Revenue", marker_color="#007aff",
+                                ))
+                                if ni_row:
+                                    ni_data = inc_raw.loc[ni_row].dropna().sort_index()
+                                    fig_r.add_trace(go.Bar(
+                                        x=[d.strftime("%b %Y") if hasattr(d, "strftime") else str(d) for d in ni_data.index],
+                                        y=ni_data.values, name="Net Income", marker_color="#34c759",
+                                    ))
+                                fig_r.update_layout(template="plotly_white", paper_bgcolor="rgba(0,0,0,0)",
+                                    plot_bgcolor="rgba(0,0,0,0)", height=320, barmode="group",
+                                    legend=dict(orientation="h"), margin=dict(l=50, r=20, t=10, b=40),
+                                    font=dict(family="Inter", color="#1d1d1f"))
+                                fig_r.update_xaxes(gridcolor="#f0f0f5")
+                                fig_r.update_yaxes(gridcolor="#f0f0f5")
+                                st.plotly_chart(fig_r, use_container_width=True)
+
+                    # ──────────────────────────────────────────────
+                    # TECHNICAL ANALYSIS (for all TA personas)
+                    # ──────────────────────────────────────────────
+                    with st_tech:
+                        curr = pick_df["Close"].iloc[-1]
+
+                        # ── Key Indicators ───────────────────────
+                        st.markdown("#### Key Technical Indicators")
+                        t1, t2, t3, t4, t5, t6 = st.columns(6)
+                        with t1:
+                            rsi = pick_df["RSI"].iloc[-1]
+                            rsi_label = "Oversold" if rsi < 30 else "Overbought" if rsi > 70 else "Neutral"
+                            st.metric("RSI (14)", f"{rsi:.1f}", rsi_label)
+                        with t2:
+                            macd = pick_df["MACD"].iloc[-1]
+                            macd_sig = pick_df["MACD_Signal"].iloc[-1]
+                            st.metric("MACD", f"{macd:.3f}", "Bullish" if macd > macd_sig else "Bearish")
+                        with t3:
+                            sma50 = pick_df["SMA_50"].iloc[-1]
+                            st.metric("SMA 50", f"${sma50:.2f}", f"{'Above' if curr > sma50 else 'Below'}")
+                        with t4:
+                            sma200 = pick_df["SMA_200"].iloc[-1] if "SMA_200" in pick_df.columns else 0
+                            st.metric("SMA 200", f"${sma200:.2f}", f"{'Above' if curr > sma200 else 'Below'}")
+                        with t5:
+                            gc = sma50 > sma200 if sma200 else False
+                            st.metric("Cross", "Golden Cross" if gc else "Death Cross")
+                        with t6:
+                            vol_now = pick_df["Volume"].iloc[-1]
+                            vol_avg = pick_df["Volume"].rolling(20).mean().iloc[-1]
+                            vol_r = vol_now / vol_avg if vol_avg > 0 else 0
+                            st.metric("Vol Ratio", f"{vol_r:.2f}x", "Spike" if vol_r > 2 else "Normal")
+
+                        # ── Support & Resistance ─────────────────
+                        st.markdown("#### Support & Resistance Levels")
+                        recent = pick_df.tail(60)
+                        high_20 = recent["High"].rolling(20).max().iloc[-1]
+                        low_20 = recent["Low"].rolling(20).min().iloc[-1]
+                        high_50 = pick_df.tail(120)["High"].max()
+                        low_50 = pick_df.tail(120)["Low"].min()
+                        sr1, sr2, sr3, sr4 = st.columns(4)
+                        with sr1:
+                            st.metric("Resistance (20d)", f"${high_20:.2f}")
+                        with sr2:
+                            st.metric("Support (20d)", f"${low_20:.2f}")
+                        with sr3:
+                            st.metric("Resistance (60d)", f"${high_50:.2f}")
+                        with sr4:
+                            st.metric("Support (60d)", f"${low_50:.2f}")
+
+                        # ── Volatility ───────────────────────────
+                        st.markdown("#### Volatility & Risk")
+                        returns = pick_df["Close"].pct_change().dropna()
+                        vol_20 = returns.tail(20).std() * np.sqrt(252) * 100
+                        vol_60 = returns.tail(60).std() * np.sqrt(252) * 100
+                        max_dd = ((pick_df["Close"] / pick_df["Close"].cummax()) - 1).min() * 100
+                        sharpe = (returns.mean() * 252) / (returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
+
+                        vr1, vr2, vr3, vr4 = st.columns(4)
+                        with vr1:
+                            st.metric("20d Volatility", f"{vol_20:.1f}%")
+                        with vr2:
+                            st.metric("60d Volatility", f"{vol_60:.1f}%")
+                        with vr3:
+                            st.metric("Max Drawdown (1Y)", f"{max_dd:.1f}%")
+                        with vr4:
+                            st.metric("Sharpe Ratio (1Y)", f"{sharpe:.2f}")
+
+                        # ── Moving Average Table ─────────────────
+                        st.markdown("#### Moving Average Summary")
+                        ma_data = []
+                        for ma_period in [20, 50, 100, 200]:
+                            ma_val = pick_df["Close"].rolling(ma_period).mean().iloc[-1]
+                            if not np.isnan(ma_val):
+                                pct_diff = ((curr - ma_val) / ma_val) * 100
+                                signal = "Bullish" if curr > ma_val else "Bearish"
+                                ma_data.append({
+                                    "Period": f"SMA {ma_period}",
+                                    "Value": f"${ma_val:.2f}",
+                                    "Price vs MA": f"{pct_diff:+.2f}%",
+                                    "Signal": signal,
+                                })
+                        if ma_data:
+                            st.dataframe(pd.DataFrame(ma_data), use_container_width=True, hide_index=True)
+
+                        # ── Full chart with MACD + RSI ───────────
+                        st.markdown("#### Price Chart with Indicators")
+                        fig = create_chart(pick_df, ticker)
+                        st.plotly_chart(fig, use_container_width=True)
+
+                    # ──────────────────────────────────────────────
+                    # AGENT VERDICTS (reasoning from each persona)
+                    # ──────────────────────────────────────────────
+                    with st_agents_tab:
+                        st.markdown("#### AI Agent Analysis")
+
+                        if agents:
+                            for agent in agents:
+                                a_name = agent.get("name", "Agent")
+                                a_verdict = agent.get("verdict", "WATCH")
+                                a_confidence = agent.get("confidence", 0)
+                                a_reasoning = agent.get("reasoning", "")
+
+                                v_class = "verdict-buy" if a_verdict == "BUY" else "verdict-pass" if a_verdict == "PASS" else "verdict-watch"
+                                border_color = "#34c759" if a_verdict == "BUY" else "#ff3b30" if a_verdict == "PASS" else "#ff9500"
+
+                                st.markdown(f"""<div class="card" style="border-left:4px solid {border_color}">
+                                    <div style="display:flex;justify-content:space-between;align-items:center">
+                                        <div>
+                                            <span style="font-weight:600;font-size:16px;color:#1d1d1f">{a_name}</span>
+                                            <span class="{v_class}" style="margin-left:12px">{a_verdict}</span>
+                                        </div>
+                                        <span style="font-size:14px;color:#86868b">Confidence: {a_confidence}%</span>
+                                    </div>
+                                    {"<div style='margin-top:12px;font-size:14px;color:#424245;line-height:1.7'>" + a_reasoning + "</div>" if a_reasoning else ""}
+                                </div>""", unsafe_allow_html=True)
+                        else:
+                            st.info("Agent verdicts will appear after running a full scan with AI analysis enabled.")
+
+                        # Company overview
+                        desc = pick_info.get("longBusinessSummary", "")
+                        if desc:
+                            st.markdown("#### Company Overview")
+                            st.markdown(f"""<div class="card">
+                                <div style="font-size:14px;color:#424245;line-height:1.7">{desc}</div>
+                                <div style="margin-top:12px;font-size:13px;color:#86868b">
+                                    Industry: {pick_info.get('industry', 'N/A')} &middot;
+                                    Employees: {pick_info.get('fullTimeEmployees', 'N/A'):,} &middot;
+                                    Country: {pick_info.get('country', 'N/A')} &middot;
+                                    Website: {pick_info.get('website', 'N/A')}
+                                </div>
+                            </div>""", unsafe_allow_html=True)
+
+                        # Analyst targets
+                        st.markdown("#### Analyst Consensus")
+                        an1, an2, an3, an4 = st.columns(4)
+                        with an1:
+                            st.metric("Target Mean", f"${pick_info.get('targetMeanPrice', 0):.2f}" if pick_info.get("targetMeanPrice") else "N/A")
+                        with an2:
+                            st.metric("Target High", f"${pick_info.get('targetHighPrice', 0):.2f}" if pick_info.get("targetHighPrice") else "N/A")
+                        with an3:
+                            st.metric("Target Low", f"${pick_info.get('targetLowPrice', 0):.2f}" if pick_info.get("targetLowPrice") else "N/A")
+                        with an4:
+                            st.metric("Recommendation", pick_info.get("recommendationKey", "N/A").upper() if pick_info.get("recommendationKey") else "N/A")
 
     else:
         st.markdown("""
