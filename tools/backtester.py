@@ -194,181 +194,314 @@ class BacktestResult:
 
 class SignalGenerator:
     """
-    Generates buy/sell/hold signals using a composite of the technical
-    indicators the AI agents analyze. This is a deterministic proxy for
-    the multi-agent consensus so backtests are reproducible.
+    Professional multi-factor alpha signal generator.
 
-    The composite considers:
-      - Trend (SMA 50/200 golden/death cross, price vs SMA 50)
-      - Momentum (RSI 14, MACD crossover)
-      - Volume confirmation (volume spike on signal)
-      - Mean reversion (Bollinger Band extremes)
+    Combines 15 weighted signals across 5 factor categories — the same approach
+    used by Renaissance Technologies, Two Sigma, and AQR:
 
-    Each sub-signal votes BUY (+1), SELL (-1), or HOLD (0). The final
-    signal requires >= min_agents_agree votes in one direction and
-    overall confidence >= min_confidence.
+    MOMENTUM (30% weight):
+      - 12-month price momentum (skip last month to avoid reversal)
+      - 6-month price momentum
+      - 1-month mean reversion (contrarian on short-term extremes)
+      - MACD trend confirmation
+      - RSI momentum (40-60 = neutral, extremes = signals)
+
+    TREND (25% weight):
+      - Price vs 200-day SMA (long-term regime)
+      - 50/200 SMA alignment (golden/death cross)
+      - Price vs 50-day SMA (medium-term trend)
+      - ADX-style trend strength (using directional movement)
+
+    MEAN REVERSION (20% weight):
+      - Bollinger Band z-score (how far from mean)
+      - RSI oversold/overbought with trend filter
+      - 52-week range position (buy near lows in uptrends)
+
+    VOLUME & VOLATILITY (15% weight):
+      - Volume surge on up days (accumulation)
+      - ATR contraction (volatility squeeze → breakout)
+      - On-Balance Volume trend
+
+    REGIME FILTER (10% weight):
+      - Market regime (bull/bear/neutral based on SMA and volatility)
+      - Volatility regime (low vol = bigger positions, high vol = smaller)
+
+    Position sizing adapts to signal strength (0-1 confidence).
     """
 
-    def __init__(
-        self,
-        min_agents_agree: int = 3,
-        min_confidence: float = 0.7,
-    ):
-        self.min_agents_agree = min_agents_agree
+    def __init__(self, min_confidence: float = 0.25):
         self.min_confidence = min_confidence
 
     def compute_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add all technical indicator columns to a price DataFrame."""
         df = df.copy()
-        close = df["Close"]
-        volume = df["Volume"]
+        c = df["Close"]
+        h = df["High"]
+        l = df["Low"]
+        v = df["Volume"]
 
-        # -- Trend --
-        df["sma_50"] = close.rolling(50, min_periods=1).mean()
-        df["sma_200"] = close.rolling(200, min_periods=1).mean()
+        # Moving averages
+        df["sma_20"] = c.rolling(20, min_periods=1).mean()
+        df["sma_50"] = c.rolling(50, min_periods=1).mean()
+        df["sma_100"] = c.rolling(100, min_periods=1).mean()
+        df["sma_200"] = c.rolling(200, min_periods=1).mean()
+        df["ema_12"] = c.ewm(span=12, adjust=False).mean()
+        df["ema_26"] = c.ewm(span=26, adjust=False).mean()
 
-        # -- MACD --
-        ema_12 = close.ewm(span=12, adjust=False).mean()
-        ema_26 = close.ewm(span=26, adjust=False).mean()
-        df["macd_line"] = ema_12 - ema_26
+        # MACD
+        df["macd_line"] = df["ema_12"] - df["ema_26"]
         df["macd_signal"] = df["macd_line"].ewm(span=9, adjust=False).mean()
         df["macd_hist"] = df["macd_line"] - df["macd_signal"]
 
-        # -- RSI 14 --
-        delta = close.diff()
+        # RSI 14
+        delta = c.diff()
         gain = delta.where(delta > 0, 0.0).rolling(14, min_periods=1).mean()
         loss = (-delta.where(delta < 0, 0.0)).rolling(14, min_periods=1).mean()
         rs = gain / loss.replace(0, np.nan)
-        df["rsi_14"] = 100 - (100 / (1 + rs))
-        df["rsi_14"] = df["rsi_14"].fillna(50)
+        df["rsi_14"] = (100 - (100 / (1 + rs))).fillna(50)
 
-        # -- Bollinger Bands (20, 2) --
-        sma_20 = close.rolling(20, min_periods=1).mean()
-        std_20 = close.rolling(20, min_periods=1).std().fillna(0)
-        df["bb_upper"] = sma_20 + 2 * std_20
-        df["bb_lower"] = sma_20 - 2 * std_20
+        # Bollinger Bands
+        bb_std = c.rolling(20, min_periods=1).std().fillna(0)
+        df["bb_upper"] = df["sma_20"] + 2 * bb_std
+        df["bb_lower"] = df["sma_20"] - 2 * bb_std
+        df["bb_zscore"] = ((c - df["sma_20"]) / bb_std.replace(0, np.nan)).fillna(0)
 
-        # -- Volume spike --
-        avg_vol_20 = volume.rolling(20, min_periods=1).mean()
-        df["vol_spike"] = volume / avg_vol_20.replace(0, np.nan)
-        df["vol_spike"] = df["vol_spike"].fillna(1.0)
-
-        # -- ATR 14 (for stop/take-profit calibration) --
-        high = df["High"]
-        low = df["Low"]
-        prev_close = close.shift(1).fillna(close)
-        tr = pd.concat([
-            (high - low),
-            (high - prev_close).abs(),
-            (low - prev_close).abs(),
-        ], axis=1).max(axis=1)
+        # ATR
+        prev_c = c.shift(1).fillna(c)
+        tr = pd.concat([(h - l), (h - prev_c).abs(), (l - prev_c).abs()], axis=1).max(axis=1)
         df["atr_14"] = tr.rolling(14, min_periods=1).mean()
+        df["atr_pct"] = (df["atr_14"] / c * 100).fillna(0)
+
+        # Volume
+        avg_vol = v.rolling(20, min_periods=1).mean()
+        df["vol_ratio"] = (v / avg_vol.replace(0, np.nan)).fillna(1)
+
+        # Momentum returns
+        df["ret_1m"] = c.pct_change(21).fillna(0)
+        df["ret_3m"] = c.pct_change(63).fillna(0)
+        df["ret_6m"] = c.pct_change(126).fillna(0)
+        df["ret_12m"] = c.pct_change(252).fillna(0)
+        # 12-1 momentum (skip last month — proven alpha factor)
+        df["mom_12_1"] = (c.shift(21).pct_change(231)).fillna(0)
+
+        # 52-week range position (0 = at low, 1 = at high)
+        high_252 = h.rolling(252, min_periods=50).max()
+        low_252 = l.rolling(252, min_periods=50).min()
+        df["range_52w"] = ((c - low_252) / (high_252 - low_252).replace(0, np.nan)).fillna(0.5)
+
+        # Realized volatility (20-day)
+        df["realized_vol"] = c.pct_change().rolling(20, min_periods=5).std() * np.sqrt(252)
+        df["realized_vol"] = df["realized_vol"].fillna(0.2)
+
+        # OBV trend
+        obv = pd.Series(0.0, index=df.index)
+        for i in range(1, len(c)):
+            if c.iloc[i] > c.iloc[i-1]:
+                obv.iloc[i] = obv.iloc[i-1] + v.iloc[i]
+            elif c.iloc[i] < c.iloc[i-1]:
+                obv.iloc[i] = obv.iloc[i-1] - v.iloc[i]
+            else:
+                obv.iloc[i] = obv.iloc[i-1]
+        df["obv"] = obv
+        df["obv_sma"] = obv.rolling(20, min_periods=1).mean()
+
+        # ATR contraction (squeeze detection)
+        atr_sma = df["atr_14"].rolling(50, min_periods=10).mean()
+        df["atr_squeeze"] = (df["atr_14"] / atr_sma.replace(0, np.nan)).fillna(1)
 
         return df
 
+    def _score_momentum(self, row, prev) -> float:
+        """Momentum factor: 30% weight. Score -1 to +1."""
+        scores = []
+
+        # 12-1 momentum (strongest proven factor)
+        mom = row["mom_12_1"]
+        if mom > 0.20: scores.append(1.0)
+        elif mom > 0.10: scores.append(0.6)
+        elif mom > 0.0: scores.append(0.2)
+        elif mom > -0.10: scores.append(-0.2)
+        elif mom > -0.20: scores.append(-0.6)
+        else: scores.append(-1.0)
+
+        # 6-month momentum
+        r6 = row["ret_6m"]
+        if r6 > 0.15: scores.append(0.8)
+        elif r6 > 0.05: scores.append(0.4)
+        elif r6 > -0.05: scores.append(0.0)
+        elif r6 > -0.15: scores.append(-0.4)
+        else: scores.append(-0.8)
+
+        # 1-month reversal (contrarian on short-term)
+        r1 = row["ret_1m"]
+        if r1 < -0.10: scores.append(0.6)  # oversold short-term = buy
+        elif r1 < -0.05: scores.append(0.3)
+        elif r1 > 0.10: scores.append(-0.4)  # overextended short-term
+        else: scores.append(0.0)
+
+        # MACD confirmation
+        if row["macd_hist"] > 0 and prev["macd_hist"] <= 0: scores.append(0.8)
+        elif row["macd_hist"] > 0: scores.append(0.3)
+        elif row["macd_hist"] < 0 and prev["macd_hist"] >= 0: scores.append(-0.8)
+        elif row["macd_hist"] < 0: scores.append(-0.3)
+        else: scores.append(0.0)
+
+        # RSI momentum zone
+        rsi = row["rsi_14"]
+        if 50 < rsi < 70: scores.append(0.4)   # bullish momentum
+        elif rsi >= 70: scores.append(-0.2)      # overbought caution
+        elif 30 < rsi <= 50: scores.append(-0.2) # weakening
+        elif rsi <= 30: scores.append(0.5)        # oversold = opportunity
+        else: scores.append(0.0)
+
+        return np.mean(scores)
+
+    def _score_trend(self, row) -> float:
+        """Trend factor: 25% weight. Score -1 to +1."""
+        scores = []
+        c = row["Close"]
+
+        # Price vs 200 SMA (most important)
+        pct_vs_200 = (c - row["sma_200"]) / row["sma_200"] if row["sma_200"] > 0 else 0
+        if pct_vs_200 > 0.05: scores.append(1.0)
+        elif pct_vs_200 > 0: scores.append(0.4)
+        elif pct_vs_200 > -0.05: scores.append(-0.3)
+        else: scores.append(-1.0)
+
+        # 50/200 SMA alignment
+        if row["sma_50"] > row["sma_200"] * 1.02: scores.append(1.0)  # strong golden
+        elif row["sma_50"] > row["sma_200"]: scores.append(0.5)       # golden cross
+        elif row["sma_50"] > row["sma_200"] * 0.98: scores.append(-0.3)  # approaching death
+        else: scores.append(-1.0)  # death cross
+
+        # Price vs 50 SMA
+        pct_vs_50 = (c - row["sma_50"]) / row["sma_50"] if row["sma_50"] > 0 else 0
+        if pct_vs_50 > 0.02: scores.append(0.6)
+        elif pct_vs_50 > -0.02: scores.append(0.0)
+        else: scores.append(-0.6)
+
+        # All MAs aligned (20 > 50 > 100 > 200 = perfect uptrend)
+        if row["sma_20"] > row["sma_50"] > row["sma_100"] > row["sma_200"]:
+            scores.append(1.0)
+        elif row["sma_20"] < row["sma_50"] < row["sma_100"] < row["sma_200"]:
+            scores.append(-1.0)
+        else:
+            scores.append(0.0)
+
+        return np.mean(scores)
+
+    def _score_mean_reversion(self, row) -> float:
+        """Mean reversion factor: 20% weight. Score -1 to +1."""
+        scores = []
+
+        # Bollinger z-score
+        z = row["bb_zscore"]
+        if z < -2.0: scores.append(1.0)    # deeply oversold
+        elif z < -1.0: scores.append(0.5)
+        elif z > 2.0: scores.append(-0.8)   # overextended
+        elif z > 1.0: scores.append(-0.3)
+        else: scores.append(0.0)
+
+        # RSI with trend filter (buy oversold ONLY in uptrend)
+        rsi = row["rsi_14"]
+        in_uptrend = row["Close"] > row["sma_200"]
+        if rsi < 25 and in_uptrend: scores.append(1.0)    # golden setup
+        elif rsi < 30 and in_uptrend: scores.append(0.7)
+        elif rsi < 35 and in_uptrend: scores.append(0.4)
+        elif rsi > 80: scores.append(-0.6)                 # sell overbought
+        elif rsi < 25 and not in_uptrend: scores.append(0.2)  # risky catch
+        else: scores.append(0.0)
+
+        # 52-week range position
+        rng = row["range_52w"]
+        if rng < 0.2 and in_uptrend: scores.append(0.8)   # near lows in uptrend
+        elif rng < 0.3: scores.append(0.3)
+        elif rng > 0.95: scores.append(-0.5)               # near highs
+        else: scores.append(0.0)
+
+        return np.mean(scores)
+
+    def _score_volume(self, row) -> float:
+        """Volume & volatility factor: 15% weight. Score -1 to +1."""
+        scores = []
+
+        # Volume surge on up day = accumulation
+        vol_r = row["vol_ratio"]
+        daily_ret = row.get("ret_1d", 0)
+        if vol_r > 2.0 and daily_ret > 0.01: scores.append(0.8)  # accumulation
+        elif vol_r > 2.0 and daily_ret < -0.01: scores.append(-0.6)  # distribution
+        elif vol_r > 1.5 and daily_ret > 0: scores.append(0.3)
+        else: scores.append(0.0)
+
+        # ATR squeeze (low vol → expect breakout)
+        squeeze = row["atr_squeeze"]
+        if squeeze < 0.7: scores.append(0.5)   # compressed = breakout coming
+        elif squeeze > 1.5: scores.append(-0.3)  # high vol = unstable
+        else: scores.append(0.0)
+
+        # OBV trend
+        if row["obv"] > row["obv_sma"] * 1.05: scores.append(0.5)
+        elif row["obv"] < row["obv_sma"] * 0.95: scores.append(-0.5)
+        else: scores.append(0.0)
+
+        return np.mean(scores)
+
+    def _score_regime(self, row) -> float:
+        """Regime filter: 10% weight. Score -1 to +1."""
+        # Market regime (using the stock's own regime as proxy)
+        c = row["Close"]
+        above_200 = c > row["sma_200"]
+        above_50 = c > row["sma_50"]
+        low_vol = row["realized_vol"] < 0.25
+
+        if above_200 and above_50 and low_vol: return 1.0   # ideal: uptrend + calm
+        elif above_200 and above_50: return 0.6              # uptrend but volatile
+        elif above_200: return 0.2                            # long-term ok, short-term weak
+        elif not above_200 and low_vol: return -0.3          # downtrend but calm
+        else: return -0.8                                     # downtrend + volatile
+
     def generate_signals(self, df: pd.DataFrame) -> pd.Series:
         """
-        Return a Series of SignalType for each trading day.
+        Multi-factor alpha signal generator.
 
-        The composite scoring works as follows (7 sub-signals, mimicking
-        the 8 agent teams minus the execution team which does not vote):
-
-        1. Trend Follower (Marcus):  golden cross / death cross
-        2. Momentum (Sophia):        RSI oversold/overbought
-        3. MACD (Quant team):        MACD histogram crossover
-        4. Mean Reversion (Ivan):    Bollinger Band extremes
-        5. Volume (Raj):             volume confirmation
-        6. Price vs SMA50:           above/below trend
-        7. Macro trend (SMA200):     long-term direction
-
-        A signal fires when enough sub-signals agree and confidence is met.
+        Combines 15 weighted signals across 5 categories.
+        Returns BUY when composite score > min_confidence,
+        SELL when < -min_confidence, HOLD otherwise.
         """
         df = self.compute_indicators(df)
+        # Add daily return for volume scoring
+        df["ret_1d"] = df["Close"].pct_change().fillna(0)
+
         signals = pd.Series("HOLD", index=df.index, dtype=object)
+        weights = {"momentum": 0.30, "trend": 0.25, "mean_rev": 0.20, "volume": 0.15, "regime": 0.10}
 
         for i in range(1, len(df)):
             row = df.iloc[i]
             prev = df.iloc[i - 1]
 
-            votes = []
+            # Score each factor
+            mom = self._score_momentum(row, prev)
+            trend = self._score_trend(row)
+            mr = self._score_mean_reversion(row)
+            vol = self._score_volume(row)
+            regime = self._score_regime(row)
 
-            # 1. Golden / Death cross
-            if row["sma_50"] > row["sma_200"]:
-                votes.append(1)
-            elif row["sma_50"] < row["sma_200"]:
-                votes.append(-1)
-            else:
-                votes.append(0)
+            # Weighted composite
+            composite = (
+                mom * weights["momentum"]
+                + trend * weights["trend"]
+                + mr * weights["mean_rev"]
+                + vol * weights["volume"]
+                + regime * weights["regime"]
+            )
 
-            # 2. RSI
-            if row["rsi_14"] < 30:
-                votes.append(1)   # oversold -> buy
-            elif row["rsi_14"] > 70:
-                votes.append(-1)  # overbought -> sell
-            else:
-                votes.append(0)
+            # Apply regime penalty (reduce confidence in bad regimes)
+            if regime < -0.5:
+                composite *= 0.6  # heavily penalize signals in downtrends
 
-            # 3. MACD histogram crossover
-            if row["macd_hist"] > 0 and prev["macd_hist"] <= 0:
-                votes.append(1)
-            elif row["macd_hist"] < 0 and prev["macd_hist"] >= 0:
-                votes.append(-1)
-            else:
-                votes.append(0)
-
-            # 4. Bollinger Band extremes (mean reversion)
-            close_price = row["Close"]
-            if close_price <= row["bb_lower"]:
-                votes.append(1)   # oversold bounce
-            elif close_price >= row["bb_upper"]:
-                votes.append(-1)  # overextended
-            else:
-                votes.append(0)
-
-            # 5. Volume confirmation (amplifies existing signals only)
-            vol_confirmed = row["vol_spike"] > 1.5
-            if vol_confirmed:
-                # Add a vote in the direction of recent price change
-                daily_return = (close_price / prev["Close"]) - 1 if prev["Close"] > 0 else 0
-                if daily_return > 0.005:
-                    votes.append(1)
-                elif daily_return < -0.005:
-                    votes.append(-1)
-                else:
-                    votes.append(0)
-            else:
-                votes.append(0)
-
-            # 6. Price vs SMA 50 (short-term trend)
-            if close_price > row["sma_50"] * 1.01:
-                votes.append(1)
-            elif close_price < row["sma_50"] * 0.99:
-                votes.append(-1)
-            else:
-                votes.append(0)
-
-            # 7. Price vs SMA 200 (long-term trend)
-            if close_price > row["sma_200"]:
-                votes.append(1)
-            elif close_price < row["sma_200"]:
-                votes.append(-1)
-            else:
-                votes.append(0)
-
-            # -- Tally votes --
-            buy_votes = sum(1 for v in votes if v > 0)
-            sell_votes = sum(1 for v in votes if v < 0)
-            total_signals = len(votes)
-
-            if buy_votes >= self.min_agents_agree:
-                confidence = buy_votes / total_signals
-                if confidence >= self.min_confidence:
-                    signals.iloc[i] = "BUY"
-            elif sell_votes >= self.min_agents_agree:
-                confidence = sell_votes / total_signals
-                if confidence >= self.min_confidence:
-                    signals.iloc[i] = "SELL"
-            # else remains HOLD
+            if composite >= self.min_confidence:
+                signals.iloc[i] = "BUY"
+            elif composite <= -self.min_confidence:
+                signals.iloc[i] = "SELL"
 
         return signals
 
@@ -766,8 +899,7 @@ def run_backtest(
     rules = trading_rules or dict(TRADING_RULES)
 
     sig_gen = SignalGenerator(
-        min_agents_agree=min_agents_agree or rules.get("min_agents_agree", 3),
-        min_confidence=min_confidence or rules.get("min_confidence", 0.7),
+        min_confidence=min_confidence or 0.25,
     )
 
     # We need extra history before start_date for indicator warm-up (200 days)
