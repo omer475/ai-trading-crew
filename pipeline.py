@@ -716,25 +716,75 @@ def stage_4_rankings(candidates: list[dict],
         else:
             holding = "4-8 months"
 
-        # Build buy reason
-        reasons = []
-        if candidate.get("pe_ratio") and 0 < candidate["pe_ratio"] <= 18:
-            reasons.append(f"Attractive valuation (P/E {candidate['pe_ratio']:.1f})")
-        if candidate.get("revenue_growth") and candidate["revenue_growth"] > 0.05:
-            reasons.append(f"Revenue growth {candidate['revenue_growth']:.0%}")
-        if candidate.get("above_sma_200"):
-            reasons.append("Above 200-day moving average (long-term uptrend)")
+        # Build professional investment thesis
+        pe = candidate.get("pe_ratio")
+        fwd_pe = candidate.get("forward_pe")
+        rev_gr = candidate.get("revenue_growth")
+        margins = candidate.get("profit_margins")
+        pb = candidate.get("price_to_book")
+        rsi_val = candidate.get("rsi", 50)
+        above_200 = candidate.get("above_sma_200", False)
+        above_50 = candidate.get("above_sma_50", False)
+        vol_ratio = candidate.get("volume_ratio", 1.0)
+        atr_pct = candidate.get("atr_pct", 0)
+
+        thesis_parts = []
+
+        # Valuation thesis
+        val_points = []
+        if pe and 0 < pe <= 20:
+            val_points.append(f"trailing P/E of {pe:.1f}x")
+        if fwd_pe and 0 < fwd_pe < (pe or 999):
+            val_points.append(f"forward P/E of {fwd_pe:.1f}x (indicating earnings acceleration)")
+        if pb and 0 < pb <= 2:
+            val_points.append(f"P/B of {pb:.2f}x")
+        if val_points:
+            thesis_parts.append(f"Valuation: Trading at {', '.join(val_points)}, well below sector averages. This suggests the market is underpricing the company's earnings power and asset base.")
+
+        # Growth thesis
+        growth_points = []
+        if rev_gr and rev_gr > 0.05:
+            growth_points.append(f"revenue growing at {rev_gr:.0%} year-over-year")
+        if margins and margins > 0.1:
+            growth_points.append(f"profit margins of {margins:.0%} demonstrating operational efficiency")
+        if growth_points:
+            thesis_parts.append(f"Fundamentals: {', '.join(growth_points).capitalize()}. The combination of growth and profitability indicates a business with sustainable competitive advantages and strong pricing power.")
+
+        # Technical thesis
+        tech_points = []
+        if above_200:
+            tech_points.append("price remains above the 200-day moving average, confirming the long-term structural uptrend is intact")
+        if above_50:
+            tech_points.append("holding above the 50-day SMA showing medium-term strength")
+        elif not above_50 and above_200:
+            tech_points.append("pulled back below the 50-day SMA while the 200-day uptrend remains intact — a potential mean-reversion entry opportunity")
         if candidate.get("golden_cross"):
-            reasons.append("Golden cross formation")
+            tech_points.append("a golden cross (50-day crossing above 200-day) has formed, historically a strong bullish signal")
+        if rsi_val < 35:
+            tech_points.append(f"RSI at {rsi_val:.0f} indicates oversold conditions — contrarian buying opportunity")
         if candidate.get("rsi_bullish_divergence"):
-            reasons.append("RSI bullish divergence detected")
-        if candidate.get("profit_margins") and candidate["profit_margins"] > 0.15:
-            reasons.append(f"Strong margins ({candidate['profit_margins']:.0%})")
+            tech_points.append("RSI bullish divergence detected, suggesting downside momentum is fading while the price prepares for a reversal")
         if candidate.get("macd_bullish_cross"):
-            reasons.append("MACD bullish crossover")
-        if not reasons:
-            reasons.append(f"High composite score ({scanner_score:.1f}/100)")
-        buy_reason = ". ".join(reasons)
+            tech_points.append("MACD bullish crossover confirms shifting momentum to the upside")
+        if tech_points:
+            thesis_parts.append(f"Technical picture: {tech_points[0].capitalize()}{', and ' + ', '.join(tech_points[1:]) if len(tech_points) > 1 else ''}.")
+
+        # Risk/reward summary
+        if entry_low and stop_loss_val and target_price:
+            potential_upside = ((target_price - price) / price) * 100
+            potential_downside = ((price - stop_loss_val) / price) * 100
+            rr_ratio = potential_upside / potential_downside if potential_downside > 0 else 0
+            thesis_parts.append(
+                f"Risk/reward: Entry zone ${entry_low:.2f}–${entry_high:.2f} with a target of ${target_price:.2f} "
+                f"(+{potential_upside:.1f}% upside) against a stop loss at ${stop_loss_val:.2f} "
+                f"(-{potential_downside:.1f}% risk), yielding a {rr_ratio:.1f}:1 reward-to-risk ratio. "
+                f"Recommended holding period: {holding}."
+            )
+
+        if not thesis_parts:
+            thesis_parts.append(f"High composite score ({scanner_score:.1f}/100) across multiple fundamental and technical factors.")
+
+        buy_reason = " ".join(thesis_parts)
 
         # Agent agreement
         agreed = [v.agent_name for v in verdicts if v.verdict == "BUY"]
