@@ -1,4 +1,4 @@
-pyautogen>=0.4
+pyautogen[anthropic]>=0.4
 chromadb>=0.5
 langchain>=0.3
 alpaca-trade-api>=3.2
@@ -8,3 +8,5 @@ numpy>=1.26
 python-dotenv>=1.0
 yfinance>=0.2
 ta>=0.11
+anthropic>=0.42
+openai>=1.60
