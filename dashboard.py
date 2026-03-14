@@ -241,6 +241,27 @@ def get_latest_report():
     if not jf: return None
     with open(jf[0]) as f: return json.load(f)
 
+def normalize_pick(pick):
+    """Normalize pick field names from pipeline JSON to dashboard expected names."""
+    return {
+        "ticker": pick.get("symbol") or pick.get("ticker", ""),
+        "name": pick.get("name", ""),
+        "price": pick.get("price", 0),
+        "confidence": (pick.get("confidence", 0) * 100) if pick.get("confidence", 0) <= 1 else pick.get("confidence", 0),
+        "score": pick.get("combined_score") or pick.get("scanner_score") or pick.get("score", 0),
+        "entry_low": pick.get("entry_low", 0),
+        "entry_high": pick.get("entry_high", 0),
+        "stop_loss": pick.get("stop_loss", 0),
+        "target": pick.get("target_price") or pick.get("target", 0),
+        "reason": pick.get("buy_reason") or pick.get("reason", ""),
+        "agents_agreed": pick.get("agents_agreed", []),
+        "agent_verdicts": pick.get("agent_verdicts", []),
+        "hold_period": pick.get("holding_period") or pick.get("hold_period", "3-6 months"),
+        "sector": pick.get("sector", ""),
+        "market": pick.get("market", "US"),
+        "verdict": pick.get("verdict", ""),
+    }
+
 def regime_badge(r):
     if not r: return '<span class="badge badge-gray">Unknown</span>'
     if isinstance(r, dict): r = r.get("regime", "Unknown")
@@ -281,20 +302,22 @@ with tab_home:
             st.markdown('<div class="section-title">Top Recommendations</div>', unsafe_allow_html=True)
             st.markdown('<div class="section-sub">AI-selected from 1,003 stocks. Updated every 2 weeks.</div>', unsafe_allow_html=True)
             cols = st.columns(min(len(picks), 3))
-            for i, pick in enumerate(picks[:3]):
+            for i, raw_pick in enumerate(picks[:3]):
                 with cols[i]:
-                    tk = pick.get("ticker","")
-                    conf = pick.get("confidence", 0)
+                    pick = normalize_pick(raw_pick)
+                    tk = pick["ticker"]
+                    conf = pick["confidence"]
+                    reason = pick["reason"]
                     p_color = "green" if conf >= 75 else "orange" if conf >= 60 else "red"
                     st.markdown(f"""<div class="card">
                         <div class="caption">#{i+1} Pick</div>
-                        <div class="value-lg" style="margin:6px 0 2px">{pick.get("name", tk)}</div>
-                        <div class="caption">{tk} &middot; {pick.get("sector","")}</div>
-                        <div class="value-xl" style="margin:16px 0 12px">${pick.get("price",0):.2f}</div>
+                        <div class="value-lg" style="margin:6px 0 2px">{pick["name"] or tk}</div>
+                        <div class="caption">{tk} &middot; {pick["sector"]}</div>
+                        <div class="value-xl" style="margin:16px 0 12px">${pick["price"]:.2f}</div>
                         <div class="label">Confidence</div>
                         {progress_bar(conf, 100, p_color)}
-                        <div class="caption" style="margin-top:6px">{conf}%</div>
-                        <div style="margin-top:16px;font-size:14px;color:#424245;line-height:1.6">{(pick.get("reason",""))[:180]}{'...' if len(pick.get("reason",""))>180 else ''}</div>
+                        <div class="caption" style="margin-top:6px">{conf:.0f}%</div>
+                        <div style="margin-top:16px;font-size:14px;color:#424245;line-height:1.6">{reason[:180]}{'...' if len(reason)>180 else ''}</div>
                     </div>""", unsafe_allow_html=True)
     else:
         st.markdown("""<div style="text-align:center;padding:100px 0">
@@ -312,25 +335,26 @@ with tab_picks:
         st.markdown('<div class="section-title">All Recommendations</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="section-sub">{len(picks)} stocks from {report.get("stocks_scanned",1003):,} scanned on {report.get("scan_date","—")}</div>', unsafe_allow_html=True)
 
-        for i, pick in enumerate(picks):
-            tk = pick.get("ticker","")
-            name = pick.get("name", tk)
-            price = pick.get("price", 0)
-            conf = pick.get("confidence", 0)
-            entry_lo = pick.get("entry_low", price*0.95)
-            entry_hi = pick.get("entry_high", price*1.02)
-            sl = pick.get("stop_loss", price*0.85)
-            tgt = pick.get("target", price*1.40)
-            reason = pick.get("reason","")
-            agents = pick.get("agents_agreed", [])
-            hold = pick.get("hold_period", "3–6 months")
-            sector = pick.get("sector","")
-            market = pick.get("market","US")
+        for i, raw_pick in enumerate(picks):
+            pick = normalize_pick(raw_pick)
+            tk = pick["ticker"]
+            name = pick["name"] or tk
+            price = pick["price"]
+            conf = pick["confidence"]
+            entry_lo = pick["entry_low"] or price*0.95
+            entry_hi = pick["entry_high"] or price*1.02
+            sl = pick["stop_loss"] or price*0.85
+            tgt = pick["target"] or price*1.40
+            reason = pick["reason"]
+            agents = pick.get("agent_verdicts") or pick.get("agents_agreed", [])
+            hold = pick["hold_period"]
+            sector = pick["sector"]
+            market = pick["market"]
             upside = ((tgt-price)/price*100) if price else 0
             downside = ((price-sl)/price*100) if price else 0
             rr = upside/downside if downside > 0 else 0
 
-            with st.expander(f"#{i+1}  {name} ({tk})  —  ${price:.2f}  —  {conf}% confidence", expanded=(i<2)):
+            with st.expander(f"#{i+1}  {name} ({tk})  —  ${price:.2f}  —  {conf:.0f}% confidence", expanded=(i<2)):
 
                 # ── Dark Header Card ──
                 st.markdown(f"""<div class="pick-header">
@@ -343,7 +367,7 @@ with tab_picks:
                         <div style="text-align:right">
                             <div class="value-xl">${price:.2f}</div>
                             <div style="margin-top:8px">{progress_bar(conf, 100, "blue")}</div>
-                            <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px">{conf}% confidence</div>
+                            <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px">{conf:.0f}% confidence</div>
                         </div>
                     </div>
                 </div>""", unsafe_allow_html=True)
