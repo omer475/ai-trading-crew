@@ -351,11 +351,13 @@ def render_stock_detail(tk, pick=None, raw=None, key_prefix="detail"):
         with sg[5]: st.markdown(metric_card("P/B", f"{signals.get('price_to_book',0):.2f}" if signals.get("price_to_book") else "—"), unsafe_allow_html=True)
         st.markdown("")
 
-    # ── Sub-tabs ──
-    t1, t2, t3, t4, t5 = st.tabs(["Chart", "Fundamentals", "Financial Health", "Statements", "About & Verdicts"])
+    # ── Sub-tabs (one per department) ──
+    t1, t2, t3, t4, t5, t6 = st.tabs(["Technical Analysis", "Fundamental Analysis", "Quantitative", "Risk Management", "Statements", "About & Verdicts"])
 
     with t1:
-        st.plotly_chart(create_chart(sdf, tk, 520), use_container_width=True)
+        st.markdown('<div class="section-title" style="margin-top:8px">Technical Analysis</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Trend, momentum, volume, support/resistance — what the chart says.</div>', unsafe_allow_html=True)
+        st.plotly_chart(create_chart(sdf, tk, 520), use_container_width=True, key=f"{key_prefix}_chart")
         h52 = info.get("fiftyTwoWeekHigh", 0) or 0
         l52 = info.get("fiftyTwoWeekLow", 0) or 0
         sma50 = sdf["SMA_50"].iloc[-1] if "SMA_50" in sdf else 0
@@ -366,8 +368,54 @@ def render_stock_detail(tk, pick=None, raw=None, key_prefix="detail"):
             with pc[j]:
                 st.markdown(f'<div class="card-sm"><div class="label">{lbl}</div><div class="value-md" style="margin-top:4px">{val}</div></div>', unsafe_allow_html=True)
 
+        # Trend assessment
+        macd_v = sdf["MACD"].iloc[-1] if "MACD" in sdf else 0
+        macd_sig = sdf["MACD_Signal"].iloc[-1] if "MACD_Signal" in sdf else 0
+        golden = sma50 > sma200 if sma50 and sma200 else False
+
+        st.markdown('<div class="section-title">Trend Assessment</div>', unsafe_allow_html=True)
+        ta = st.columns(4)
+        with ta[0]:
+            trend = "Bullish" if curr > sma200 and curr > sma50 else "Neutral" if curr > sma200 else "Bearish"
+            t_color = "green" if trend == "Bullish" else "red" if trend == "Bearish" else "orange"
+            st.markdown(metric_card("Overall Trend", trend, t_color), unsafe_allow_html=True)
+        with ta[1]:
+            st.markdown(metric_card("MA Cross", "Golden Cross" if golden else "Death Cross", "green" if golden else "red"), unsafe_allow_html=True)
+        with ta[2]:
+            st.markdown(metric_card("MACD Signal", "Bullish" if macd_v > macd_sig else "Bearish", "green" if macd_v > macd_sig else "red", f"MACD: {macd_v:.3f}"), unsafe_allow_html=True)
+        with ta[3]:
+            rsi_state = "Oversold" if rsi_v < 30 else "Overbought" if rsi_v > 70 else "Neutral"
+            st.markdown(metric_card("RSI State", rsi_state, "green" if rsi_v < 30 else "red" if rsi_v > 70 else None, f"RSI: {rsi_v:.0f}"), unsafe_allow_html=True)
+
+        # Support & Resistance
+        st.markdown('<div class="section-title">Support & Resistance</div>', unsafe_allow_html=True)
+        recent = sdf.tail(60)
+        r20 = recent["High"].rolling(20).max().iloc[-1]
+        s20 = recent["Low"].rolling(20).min().iloc[-1]
+        r60 = sdf.tail(120)["High"].max()
+        s60 = sdf.tail(120)["Low"].min()
+        sr = st.columns(4)
+        with sr[0]: st.markdown(metric_card("Resistance (20d)", f"${r20:.2f}", "red" if curr > r20 * 0.98 else None), unsafe_allow_html=True)
+        with sr[1]: st.markdown(metric_card("Support (20d)", f"${s20:.2f}", "green" if curr < s20 * 1.02 else None), unsafe_allow_html=True)
+        with sr[2]: st.markdown(metric_card("Resistance (60d)", f"${r60:.2f}"), unsafe_allow_html=True)
+        with sr[3]: st.markdown(metric_card("Support (60d)", f"${s60:.2f}"), unsafe_allow_html=True)
+
+        # Moving Average Table
+        st.markdown('<div class="section-title">Moving Averages</div>', unsafe_allow_html=True)
+        ma_data = []
+        for p in [20, 50, 100, 200]:
+            ma = sdf["Close"].rolling(p).mean().iloc[-1]
+            if not np.isnan(ma):
+                diff = ((curr - ma) / ma) * 100
+                ma_data.append({"Period": f"SMA {p}", "Value": f"${ma:.2f}", "vs Price": f"{diff:+.2f}%", "Signal": "Bullish" if curr > ma else "Bearish"})
+        if ma_data:
+            st.dataframe(pd.DataFrame(ma_data), use_container_width=True, hide_index=True)
+
     with t2:
-        st.markdown('<div class="section-title" style="margin-top:8px">Valuation</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title" style="margin-top:8px">Fundamental Analysis</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Valuation, profitability, growth, dividends — what the business is worth.</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="section-title" style="margin-top:0">Valuation</div>', unsafe_allow_html=True)
         vc = st.columns(6)
         for j, (lbl, key) in enumerate([("P/E", "trailingPE"), ("Fwd P/E", "forwardPE"), ("PEG", "pegRatio"), ("P/B", "priceToBook"), ("P/S", "priceToSalesTrailing12Months"), ("EV/EBITDA", "enterpriseToEbitda")]):
             with vc[j]:
@@ -406,10 +454,62 @@ def render_stock_detail(tk, pick=None, raw=None, key_prefix="detail"):
                     fig_r.add_trace(go.Bar(x=[d.strftime("%b %Y") if hasattr(d, "strftime") else str(d) for d in nd.index], y=nd.values, name="Net Income", marker_color="#34c759"))
                 fig_r.update_layout(template="plotly_white", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", height=300, barmode="group", legend=dict(orientation="h"), margin=dict(l=50, r=20, t=10, b=40), font=dict(family="Inter", color="#1d1d1f"))
                 fig_r.update_xaxes(gridcolor="#f5f5f7"); fig_r.update_yaxes(gridcolor="#f5f5f7")
-                st.plotly_chart(fig_r, use_container_width=True)
+                st.plotly_chart(fig_r, use_container_width=True, key=f"{key_prefix}_revenue")
 
     with t3:
-        st.markdown('<div class="section-title" style="margin-top:8px">Balance Sheet</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title" style="margin-top:8px">Quantitative Analysis</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Volatility, risk metrics, correlations — what the numbers say.</div>', unsafe_allow_html=True)
+
+        rets = sdf["Close"].pct_change().dropna()
+        v20 = rets.tail(20).std() * np.sqrt(252) * 100
+        v60 = rets.tail(60).std() * np.sqrt(252) * 100
+        mdd = ((sdf["Close"] / sdf["Close"].cummax()) - 1).min() * 100
+        sharpe = (rets.mean() * 252) / (rets.std() * np.sqrt(252)) if rets.std() > 0 else 0
+        sortino_rets = rets[rets < 0]
+        sortino = (rets.mean() * 252) / (sortino_rets.std() * np.sqrt(252)) if len(sortino_rets) > 0 and sortino_rets.std() > 0 else 0
+
+        st.markdown('<div class="section-title" style="margin-top:0">Volatility</div>', unsafe_allow_html=True)
+        qv = st.columns(5)
+        with qv[0]: st.markdown(metric_card("20d Vol (Ann.)", f"{v20:.1f}%", "red" if v20 > 40 else None), unsafe_allow_html=True)
+        with qv[1]: st.markdown(metric_card("60d Vol (Ann.)", f"{v60:.1f}%"), unsafe_allow_html=True)
+        with qv[2]: st.markdown(metric_card("Max Drawdown", f"{mdd:.1f}%", "red" if mdd < -30 else None), unsafe_allow_html=True)
+        with qv[3]: st.markdown(metric_card("Sharpe Ratio", f"{sharpe:.2f}", "green" if sharpe > 0.5 else "red" if sharpe < 0 else None), unsafe_allow_html=True)
+        with qv[4]: st.markdown(metric_card("Sortino Ratio", f"{sortino:.2f}", "green" if sortino > 1 else None), unsafe_allow_html=True)
+
+        st.markdown('<div class="section-title">Return Distribution</div>', unsafe_allow_html=True)
+        qr = st.columns(5)
+        avg_daily = rets.mean() * 100
+        best_day = rets.max() * 100
+        worst_day = rets.min() * 100
+        pos_days = (rets > 0).sum() / len(rets) * 100
+        avg_gain = rets[rets > 0].mean() * 100 if (rets > 0).any() else 0
+        avg_loss = rets[rets < 0].mean() * 100 if (rets < 0).any() else 0
+        with qr[0]: st.markdown(metric_card("Avg Daily", f"{avg_daily:.3f}%"), unsafe_allow_html=True)
+        with qr[1]: st.markdown(metric_card("Best Day", f"+{best_day:.1f}%", "green"), unsafe_allow_html=True)
+        with qr[2]: st.markdown(metric_card("Worst Day", f"{worst_day:.1f}%", "red"), unsafe_allow_html=True)
+        with qr[3]: st.markdown(metric_card("Win Rate", f"{pos_days:.0f}%", "green" if pos_days > 52 else None), unsafe_allow_html=True)
+        with qr[4]: st.markdown(metric_card("Gain/Loss", f"{abs(avg_gain/avg_loss):.2f}x" if avg_loss != 0 else "—", "green" if avg_loss != 0 and abs(avg_gain/avg_loss) > 1 else None), unsafe_allow_html=True)
+
+        st.markdown('<div class="section-title">Factor Exposure</div>', unsafe_allow_html=True)
+        fe = st.columns(4)
+        beta = info.get("beta", 0) or 0
+        mcap = info.get("marketCap", 0) or 0
+        pe = info.get("trailingPE", 0) or 0
+        with fe[0]: st.markdown(metric_card("Beta", f"{beta:.2f}" if beta else "—", "orange" if beta > 1.3 else None, "High Beta" if beta > 1.3 else "Low Beta" if beta < 0.7 else "Market"), unsafe_allow_html=True)
+        with fe[1]:
+            size = "Large Cap" if mcap > 10e9 else "Mid Cap" if mcap > 2e9 else "Small Cap"
+            st.markdown(metric_card("Size Factor", size, None, fmt(mcap)), unsafe_allow_html=True)
+        with fe[2]:
+            val_label = "Deep Value" if pe < 12 else "Value" if pe < 18 else "Growth" if pe < 30 else "Expensive"
+            st.markdown(metric_card("Value Factor", val_label, "green" if pe < 15 else None, f"P/E {pe:.1f}" if pe else "—"), unsafe_allow_html=True)
+        with fe[3]:
+            mom = ((curr - sdf["Close"].iloc[-60]) / sdf["Close"].iloc[-60] * 100) if len(sdf) > 60 else 0
+            st.markdown(metric_card("Momentum (60d)", f"{mom:+.1f}%", "green" if mom > 5 else "red" if mom < -5 else None), unsafe_allow_html=True)
+
+    with t4:
+        st.markdown('<div class="section-title" style="margin-top:8px">Risk Management</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-sub">Balance sheet strength, cash flow quality, analyst consensus.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title" style="margin-top:0">Balance Sheet Health</div>', unsafe_allow_html=True)
         bs = st.columns(6)
         cash = info.get("totalCash", 0) or 0
         debt = info.get("totalDebt", 0) or 0
@@ -445,7 +545,7 @@ def render_stock_detail(tk, pick=None, raw=None, key_prefix="detail"):
         with at[1]: st.markdown(metric_card("Mean", f"${info.get('targetMeanPrice', 0):.2f}" if info.get("targetMeanPrice") else "—", "blue"), unsafe_allow_html=True)
         with at[2]: st.markdown(metric_card("High", f"${info.get('targetHighPrice', 0):.2f}" if info.get("targetHighPrice") else "—"), unsafe_allow_html=True)
 
-    with t4:
+    with t5:
         def _show_stmt(title, df_raw, keys):
             st.markdown(f'<div class="section-title" style="margin-top:8px">{title}</div>', unsafe_allow_html=True)
             if df_raw.empty:
@@ -458,7 +558,7 @@ def render_stock_detail(tk, pick=None, raw=None, key_prefix="detail"):
         _show_stmt("Balance Sheet", fin["balance"], ["total assets", "total liab", "stockholder", "current assets", "current liab", "cash and cash", "total debt", "retained"])
         _show_stmt("Cash Flow", fin["cashflow"], ["operating cash", "free cash", "capital expend", "depreciation", "stock based", "repurchase", "dividends"])
 
-    with t5:
+    with t6:
         if raw and raw.get("agent_verdicts"):
             st.markdown('<div class="section-title" style="margin-top:8px">Agent Analysis</div>', unsafe_allow_html=True)
             for ag in raw["agent_verdicts"]:
