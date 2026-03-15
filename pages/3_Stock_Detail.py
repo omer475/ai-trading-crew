@@ -24,6 +24,7 @@ def build_universe():
     return pd.DataFrame([{"Ticker": t, "Market": "LSE" if t in lse else "US", "Sector": get_sector(t)} for t in all_tk])
 
 universe = build_universe()
+all_tickers = set(universe["Ticker"].tolist())
 
 report = get_latest_report()
 picks_map, grades_map = {}, {}
@@ -40,25 +41,39 @@ if report:
 
 st.markdown("""<div style="text-align:center;padding:40px 0 20px">
     <div style="font-size:36px;font-weight:700;color:#1d1d1f;letter-spacing:-1px">Stocks</div>
-    <div style="font-size:15px;color:#86868b;margin-top:6px">Select a stock to open its analysis</div>
+    <div style="font-size:15px;color:#86868b;margin-top:6px">Type a ticker in the search box to open its analysis</div>
 </div>""", unsafe_allow_html=True)
+
+# ─── Search box (auto-navigates on exact match) ─────────────────────
+
+search = st.text_input(
+    "Search",
+    placeholder="Type a ticker (e.g. AAPL, GPOR, BP.L) and press Enter...",
+    label_visibility="collapsed",
+    key="stock_search",
+).strip().upper()
+
+# Auto-navigate if exact ticker match
+if search and search in all_tickers:
+    st.session_state["selected_stock"] = search
+    st.switch_page("pages/5_Analysis.py")
 
 # ─── Filters ─────────────────────────────────────────────────────────
 
-c1, c2, c3, c4 = st.columns(4)
-with c1: search = st.text_input("Search", placeholder="Ticker...", label_visibility="collapsed", key="s").strip().upper()
-with c2: mkt = st.selectbox("Market", ["All", "LSE", "US"], key="m", label_visibility="collapsed")
-with c3:
+c1, c2, c3 = st.columns(3)
+with c1: mkt = st.selectbox("Market", ["All", "LSE", "US"], key="m", label_visibility="collapsed")
+with c2:
     secs = sorted(universe["Sector"].unique().tolist())
     sec = st.selectbox("Sector", ["All"] + secs, key="sec", label_visibility="collapsed")
-with c4: sort = st.selectbox("Sort", ["Grade", "A–Z", "Z–A"], key="srt", label_visibility="collapsed")
+with c3: sort = st.selectbox("Sort", ["Grade", "A–Z", "Z–A"], key="srt", label_visibility="collapsed")
 
 # ─── Filter + Sort ───────────────────────────────────────────────────
 
 df = universe.copy()
 if mkt != "All": df = df[df["Market"] == mkt]
 if sec != "All": df = df[df["Sector"] == sec]
-if search: df = df[df["Ticker"].str.contains(search, case=False, na=False)]
+if search and search not in all_tickers:
+    df = df[df["Ticker"].str.contains(search, case=False, na=False)]
 
 df["Grade"] = df["Ticker"].map(lambda t: int(grades_map[t]["final"]) if t in grades_map else None)
 df["Rating"] = df["Ticker"].map(lambda t: grades_map.get(t, {}).get("rating", ""))
@@ -75,85 +90,68 @@ df = df.reset_index(drop=True)
 
 st.markdown(f'<div style="text-align:center;color:#aeaeb2;font-size:12px;margin-bottom:16px">{len(df):,} stocks</div>', unsafe_allow_html=True)
 
-# ─── Stock selector (auto-navigates on change) ───────────────────────
+# ─── HTML Table ──────────────────────────────────────────────────────
 
-labels = []
-for _, row in df.iterrows():
+PAGE_SIZE = 50
+if "pg" not in st.session_state: st.session_state["pg"] = 0
+total_pages = max(1, (len(df) + PAGE_SIZE - 1) // PAGE_SIZE)
+page = min(st.session_state["pg"], total_pages - 1)
+start, end = page * PAGE_SIZE, min((page + 1) * PAGE_SIZE, len(df))
+page_df = df.iloc[start:end]
+
+rows_html = ""
+for _, row in page_df.iterrows():
     tk = row["Ticker"]
-    parts = [tk]
-    parts.append(row["Market"])
-    parts.append(row["Sector"])
     g = row["Grade"]
-    if pd.notna(g): parts.append(f"{int(g)}/100")
-    r = row["Rating"]
-    if r: parts.append(r)
-    if row["Status"]: parts.append(row["Status"])
-    if row["Target"]: parts.append(row["Target"])
-    labels.append("  ·  ".join(parts))
+    grade_str = f"{int(g)}" if pd.notna(g) else ""
+    rating = row["Rating"]
+    status = row["Status"]
+    target = row["Target"]
 
-prev_selected = st.session_state.get("_stocks_prev_selection", None)
+    if pd.notna(g) and g >= 75: gc = "#2e7d32"
+    elif pd.notna(g) and g >= 55: gc = "#007aff"
+    elif pd.notna(g) and g >= 45: gc = "#ff9500"
+    elif pd.notna(g) and g >= 0: gc = "#ff3b30"
+    else: gc = "#d1d1d6"
 
-selected_idx = st.selectbox(
-    "Select stock",
-    range(len(labels)),
-    format_func=lambda x: labels[x],
-    label_visibility="collapsed",
-    key="stock_selector",
-)
+    status_html = f'<span style="background:#eef4ff;color:#1565c0;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600">{status}</span>' if status else ""
+    target_html = f'<span style="color:#86868b;font-size:12px;margin-left:6px">{target}</span>' if target else ""
 
-selected_tk = df.iloc[selected_idx]["Ticker"]
+    rows_html += f"""<tr>
+        <td style="padding:11px 16px;font-size:14px;font-weight:600;color:#1d1d1f">{tk}</td>
+        <td style="padding:11px 16px;font-size:13px;color:#86868b">{row['Market']}</td>
+        <td style="padding:11px 16px;font-size:13px;color:#424245">{row['Sector']}</td>
+        <td style="padding:11px 16px;font-size:15px;font-weight:700;color:{gc}">{grade_str}</td>
+        <td style="padding:11px 16px;font-size:12px;color:{gc};font-weight:500">{rating}</td>
+        <td style="padding:11px 16px">{status_html}{target_html}</td>
+    </tr>"""
 
-# Auto-navigate when selection changes
-if prev_selected is not None and selected_tk != prev_selected:
-    st.session_state["selected_stock"] = selected_tk
-    st.session_state["_stocks_prev_selection"] = selected_tk
-    st.switch_page("pages/5_Analysis.py")
+st.markdown(f"""<table style="width:100%;border-collapse:collapse;margin-top:8px">
+    <thead>
+        <tr style="border-bottom:1px solid #e8e8ed">
+            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Ticker</th>
+            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Market</th>
+            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Sector</th>
+            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Grade</th>
+            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Rating</th>
+            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Status</th>
+        </tr>
+    </thead>
+    <tbody style="border-top:none">{rows_html}</tbody>
+</table>""", unsafe_allow_html=True)
 
-st.session_state["_stocks_prev_selection"] = selected_tk
+# ─── Pagination ──────────────────────────────────────────────────────
 
-# ─── Clickable table (same visual style, but rows navigate) ──────────
-
-# CSS to make st.dataframe match the HTML table look
-st.markdown("""<style>
-    /* Hide row selection checkbox column */
-    [data-testid="stDataFrame"] div[data-testid="column-header-0"],
-    [data-testid="stDataFrame"] div[role="gridcell"]:first-child {
-        display: none !important;
-        width: 0 !important;
-        min-width: 0 !important;
-        max-width: 0 !important;
-    }
-    /* Clean border */
-    [data-testid="stDataFrame"] > div { border: none !important; }
-    /* Row cursor */
-    [data-testid="stDataFrame"] div[role="row"] { cursor: pointer !important; }
-</style>""", unsafe_allow_html=True)
-
-# Build display df
-display = df[["Ticker", "Market", "Sector", "Grade", "Rating", "Status", "Target"]].copy()
-display["Grade"] = display["Grade"].apply(lambda g: f"{int(g)}" if pd.notna(g) else "")
-
-event = st.dataframe(
-    display,
-    use_container_width=True,
-    hide_index=True,
-    height=620,
-    on_select="rerun",
-    selection_mode="single-row",
-    column_config={
-        "Ticker": st.column_config.TextColumn("Ticker", width="small"),
-        "Market": st.column_config.TextColumn("Market", width="small"),
-        "Sector": st.column_config.TextColumn("Sector", width="medium"),
-        "Grade": st.column_config.TextColumn("Grade", width="small"),
-        "Rating": st.column_config.TextColumn("Rating", width="medium"),
-        "Status": st.column_config.TextColumn("Status", width="small"),
-        "Target": st.column_config.TextColumn("Target", width="small"),
-    },
-)
-
-# Navigate on row click
-if event and event.selection and event.selection.rows:
-    idx = event.selection.rows[0]
-    if idx < len(df):
-        st.session_state["selected_stock"] = df.iloc[idx]["Ticker"]
-        st.switch_page("pages/5_Analysis.py")
+if total_pages > 1:
+    st.markdown("")
+    pc1, pc2, pc3 = st.columns([1, 2, 1])
+    with pc1:
+        if page > 0 and st.button("← Previous"):
+            st.session_state["pg"] = page - 1
+            st.rerun()
+    with pc2:
+        st.markdown(f'<div style="text-align:center;padding:8px;color:#aeaeb2;font-size:12px">Page {page+1} of {total_pages}</div>', unsafe_allow_html=True)
+    with pc3:
+        if end < len(df) and st.button("Next →"):
+            st.session_state["pg"] = page + 1
+            st.rerun()
