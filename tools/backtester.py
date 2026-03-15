@@ -235,7 +235,7 @@ class SignalGenerator:
     Position sizing adapts to signal strength (0-1 confidence).
     """
 
-    def __init__(self, min_confidence: float = 0.28):
+    def __init__(self, min_confidence: float = 0.38):
         self.min_confidence = min_confidence
         # Stores the signal type metadata from the last generate_signals() call
         self._last_signal_types: pd.Series | None = None
@@ -711,28 +711,7 @@ class SignalGenerator:
             if regime_score < -0.5:
                 composite *= 0.6
 
-            # --- RSI-2 signal (Connors RSI — proven 91% win rate) ---
-            rsi2 = row["rsi_2"]
-            in_uptrend = row["Close"] > row["sma_200"]
-
-            # Check for RSI-2 exit first
-            if rsi2_entry_bar is not None:
-                bars_since = i - rsi2_entry_bar
-                if rsi2 > 90 or bars_since >= 5:
-                    signals.iloc[i] = "SELL"
-                    signal_types.iloc[i] = "rsi2_exit"
-                    rsi2_entry_bar = None
-                    continue
-
-            # RSI-2 buy: in uptrend, RSI-2 extreme, price above 50 SMA, and golden cross
-            golden = row["sma_50"] > row["sma_200"]
-            if in_uptrend and golden and rsi2 < 5 and rsi2_entry_bar is None and row["Close"] > row["sma_50"] * 0.97:
-                signals.iloc[i] = "BUY"
-                signal_types.iloc[i] = "rsi2"
-                rsi2_entry_bar = i
-                continue
-
-            # --- Standard composite signal ---
+            # --- Standard composite signal (long-term, high-conviction only) ---
             if composite >= self.min_confidence:
                 signals.iloc[i] = "BUY"
                 if regime == "BEAR":
@@ -777,7 +756,8 @@ class PortfolioSimulator:
     DD_RECOVERY_THRESHOLD = 0.05  # recover to within 5% of peak → reset
 
     # Mean reversion time exit
-    MEAN_REV_MAX_BARS = 30  # exit after 30 trading days if no target hit
+    MEAN_REV_MAX_BARS = 120  # exit after 6 months if no target hit
+    MIN_HOLD_BARS = 40  # minimum 2 months hold — don't exit early
 
     def __init__(
         self,
@@ -903,8 +883,8 @@ class PortfolioSimulator:
         # Apply drawdown circuit breaker scaling
         position_frac *= self._drawdown_scale
 
-        # Cap at reasonable maximum (no single position > 15% of portfolio)
-        position_frac = min(position_frac, 0.15)
+        # Cap at reasonable maximum (no single position > 12% of portfolio)
+        position_frac = min(position_frac, 0.12)
 
         max_value = current_equity * position_frac
         # Use at most what we can afford in cash
@@ -928,7 +908,7 @@ class PortfolioSimulator:
         # Stop = highest_high(22) - 3 * ATR(22)
         hh22 = highest_high_22 if highest_high_22 else price
         a22 = atr_22 if atr_22 else (atr if atr else price * 0.02)
-        chandelier_stop = hh22 - 3.0 * a22
+        chandelier_stop = hh22 - 4.0 * a22  # wider stop for long-term holds
         # Ensure stop is below entry price
         chandelier_stop = min(chandelier_stop, price * 0.95)
 
@@ -1044,11 +1024,21 @@ class PortfolioSimulator:
             if today_high > pos.highest_high:
                 pos.highest_high = today_high
 
-            new_stop = pos.highest_high - 3.0 * today_atr_22
+            new_stop = pos.highest_high - 4.0 * today_atr_22  # wider for long-term
             # Trailing stop only moves up, never down
             if new_stop > pos.trailing_stop:
                 pos.trailing_stop = new_stop
                 pos.stop_loss = new_stop
+
+            # --- Minimum hold period (don't exit early) ---
+            if pos.bars_held < self.MIN_HOLD_BARS:
+                # Only exit on catastrophic stop (> 20% loss) during min hold
+                catastrophic = pos.entry_price * 0.80
+                if price <= catastrophic:
+                    t = self.close_position(symbol, price, date, reason="catastrophic_stop")
+                    if t:
+                        closed.append(t)
+                continue  # skip all other exit checks during min hold
 
             # --- Check trailing stop ---
             if price <= pos.stop_loss:
@@ -1317,7 +1307,7 @@ def run_backtest(
     rules = trading_rules or dict(TRADING_RULES)
 
     sig_gen = SignalGenerator(
-        min_confidence=min_confidence or 0.28,
+        min_confidence=min_confidence or 0.38,
     )
 
     # We need extra history before start_date for indicator warm-up (200 days)
