@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared import (
     inject_css, page_header, get_latest_report, normalize_pick,
-    render_stock_detail,
+    render_stock_detail, calculate_recommendation, get_stock_info,
 )
 from tools.universe import get_universe, SECTOR_MAP, get_sector
 
@@ -131,8 +131,12 @@ st.markdown(f"""<div style="display:flex;gap:16px;margin:16px 0 24px">
 display_options = []
 for _, row in filtered.iterrows():
     tk = row["Ticker"]
-    in_scan = " [AI PICK]" if tk in scan_picks_map else ""
-    display_options.append(f"{tk} | {row['Sector']} | {row['Market']}{in_scan}")
+    if tk in scan_picks_map:
+        p = scan_picks_map[tk]["pick"]
+        conf = p.get("confidence", 0)
+        display_options.append(f"{tk} | {row['Sector']} | {row['Market']} | AI PICK ({conf:.0f}%)")
+    else:
+        display_options.append(f"{tk} | {row['Sector']} | {row['Market']}")
 
 if not display_options:
     st.info("No stocks match your filters. Try adjusting the market, sector, or search query.")

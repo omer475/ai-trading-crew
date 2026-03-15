@@ -379,6 +379,163 @@ def regime_badge(r):
 
 # ─── Stock Detail Renderer ──────────────────────────────────────────
 
+def calculate_recommendation(info, df=None):
+    """
+    Calculate a professional recommendation (Strong Sell → Strong Strong Buy)
+    and predicted price targets based on fundamentals + technicals.
+    Returns dict with: rating, rating_color, target_low, target_mid, target_high, reasoning
+    """
+    score = 0  # -10 to +10 scale
+    reasons = []
+
+    # Valuation score
+    pe = info.get("trailingPE")
+    fwd_pe = info.get("forwardPE")
+    if pe and fwd_pe and fwd_pe < pe * 0.85:
+        score += 2; reasons.append("Earnings acceleration (forward P/E significantly below trailing)")
+    if pe and 0 < pe < 12:
+        score += 2; reasons.append(f"Deep value at {pe:.0f}x earnings")
+    elif pe and 0 < pe < 18:
+        score += 1; reasons.append(f"Attractive valuation at {pe:.0f}x earnings")
+    elif pe and pe > 35:
+        score -= 1; reasons.append(f"Expensive at {pe:.0f}x earnings")
+
+    # Profitability
+    roe = info.get("returnOnEquity")
+    margins = info.get("profitMargins")
+    if roe and roe > 0.20:
+        score += 1; reasons.append(f"Strong ROE of {roe*100:.0f}%")
+    if margins and margins > 0.15:
+        score += 1; reasons.append(f"Healthy margins at {margins*100:.0f}%")
+
+    # Growth
+    rev_growth = info.get("revenueGrowth")
+    earn_growth = info.get("earningsGrowth")
+    if rev_growth and rev_growth > 0.15:
+        score += 2; reasons.append(f"Strong revenue growth of {rev_growth*100:.0f}%")
+    elif rev_growth and rev_growth > 0.05:
+        score += 1
+    elif rev_growth and rev_growth < -0.05:
+        score -= 1; reasons.append("Declining revenue")
+    if earn_growth and earn_growth > 0.20:
+        score += 1
+
+    # Balance sheet
+    de = info.get("debtToEquity")
+    if de and de < 30:
+        score += 1; reasons.append("Low debt levels")
+    elif de and de > 150:
+        score -= 1; reasons.append("High debt levels")
+
+    # Dividends
+    div_yield = info.get("dividendYield")
+    if div_yield and div_yield > 0.03:
+        score += 1; reasons.append(f"Attractive {div_yield*100:.1f}% dividend yield")
+
+    # Technical (if df available)
+    if df is not None and not df.empty:
+        try:
+            close = df["Close"].iloc[-1]
+            sma50 = df["Close"].rolling(50).mean().iloc[-1]
+            sma200 = df["Close"].rolling(200).mean().iloc[-1]
+            if close > sma200 and close > sma50:
+                score += 1; reasons.append("Uptrend confirmed (above 50 & 200 SMA)")
+            elif close < sma200:
+                score -= 1; reasons.append("Below 200-day moving average")
+            if sma50 > sma200:
+                score += 1  # golden cross
+        except:
+            pass
+
+    # Analyst consensus
+    rec = (info.get("recommendationKey") or "").lower()
+    if rec in ("strong_buy", "buy"):
+        score += 1
+    elif rec in ("sell", "strong_sell"):
+        score -= 1
+
+    # Map score to rating
+    if score >= 7: rating, color = "Strong Strong Buy", "#1b5e20"
+    elif score >= 5: rating, color = "Strong Buy", "#2e7d32"
+    elif score >= 3: rating, color = "Buy", "#34c759"
+    elif score >= 1: rating, color = "Moderate Buy", "#66bb6a"
+    elif score >= -1: rating, color = "Hold", "#ff9500"
+    elif score >= -3: rating, color = "Moderate Sell", "#ff6b6b"
+    elif score >= -5: rating, color = "Sell", "#ff3b30"
+    else: rating, color = "Strong Sell", "#b71c1c"
+
+    # Predicted prices
+    curr = info.get("currentPrice") or info.get("regularMarketPrice") or 0
+    analyst_target = info.get("targetMeanPrice")
+    analyst_low = info.get("targetLowPrice")
+    analyst_high = info.get("targetHighPrice")
+
+    if analyst_target and curr > 0:
+        target_mid = analyst_target
+        target_low = analyst_low or curr * 0.85
+        target_high = analyst_high or curr * 1.30
+    elif curr > 0:
+        # Estimate based on score
+        multiplier = 1 + (score * 0.03)  # +/-3% per score point
+        target_mid = curr * multiplier
+        target_low = curr * (multiplier - 0.10)
+        target_high = curr * (multiplier + 0.10)
+    else:
+        target_mid = target_low = target_high = 0
+
+    return {
+        "rating": rating,
+        "color": color,
+        "score": score,
+        "target_low": target_low,
+        "target_mid": target_mid,
+        "target_high": target_high,
+        "upside": ((target_mid - curr) / curr * 100) if curr > 0 else 0,
+        "reasons": reasons[:5],  # top 5 reasons
+    }
+
+
+def render_recommendation_badge(rec):
+    """Render a prominent recommendation badge."""
+    bg_map = {
+        "Strong Strong Buy": ("linear-gradient(135deg, #1b5e20, #2e7d32)", "white"),
+        "Strong Buy": ("linear-gradient(135deg, #2e7d32, #43a047)", "white"),
+        "Buy": ("#eafaf0", "#2e7d32"),
+        "Moderate Buy": ("#eafaf0", "#388e3c"),
+        "Hold": ("#fff8e1", "#f57f17"),
+        "Moderate Sell": ("#fef0ef", "#c62828"),
+        "Sell": ("#fef0ef", "#b71c1c"),
+        "Strong Sell": ("linear-gradient(135deg, #b71c1c, #c62828)", "white"),
+    }
+    bg, fg = bg_map.get(rec["rating"], ("#f3f3f8", "#1d1d1f"))
+    upside_text = f"+{rec['upside']:.1f}%" if rec["upside"] > 0 else f"{rec['upside']:.1f}%"
+    upside_color = "#2e7d32" if rec["upside"] > 0 else "#c62828"
+
+    return f"""<div style="background:{bg};color:{fg};border-radius:16px;padding:24px;margin:16px 0">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
+            <div>
+                <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;opacity:0.7">AI Recommendation</div>
+                <div style="font-size:28px;font-weight:700;margin-top:4px">{rec['rating']}</div>
+            </div>
+            <div style="display:flex;gap:24px;flex-wrap:wrap">
+                <div style="text-align:center">
+                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;opacity:0.7">Bear Case</div>
+                    <div style="font-size:18px;font-weight:600">${rec['target_low']:.2f}</div>
+                </div>
+                <div style="text-align:center">
+                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;opacity:0.7">Target Price</div>
+                    <div style="font-size:24px;font-weight:700">${rec['target_mid']:.2f}</div>
+                    <div style="font-size:13px;font-weight:600;color:{upside_color}">{upside_text}</div>
+                </div>
+                <div style="text-align:center">
+                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;opacity:0.7">Bull Case</div>
+                    <div style="font-size:18px;font-weight:600">${rec['target_high']:.2f}</div>
+                </div>
+            </div>
+        </div>
+    </div>"""
+
+
 def render_stock_detail(tk, pick=None, raw=None, key_prefix="detail"):
     """Render a full professional stock analysis.
 
@@ -431,6 +588,15 @@ def render_stock_detail(tk, pick=None, raw=None, key_prefix="detail"):
             <div><span style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.5px">Div Yield</span><br><span style="font-size:16px;font-weight:600;color:white">{f'{info["dividendYield"]*100:.2f}%' if info.get("dividendYield") else "\u2014"}</span></div>
         </div>
     </div>""", unsafe_allow_html=True)
+
+    # ── RECOMMENDATION BADGE ──
+    rec = calculate_recommendation(info, sdf)
+    st.markdown(render_recommendation_badge(rec), unsafe_allow_html=True)
+
+    # Key reasons
+    if rec["reasons"]:
+        reasons_html = " &middot; ".join(rec["reasons"])
+        st.markdown(f'<div style="font-size:13px;color:#86868b;margin:-8px 0 16px;line-height:1.6">{reasons_html}</div>', unsafe_allow_html=True)
 
     # ── B. Analysis Summary (if from scan pick) ──
     if pick and pick.get("reason"):
