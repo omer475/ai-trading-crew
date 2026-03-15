@@ -495,6 +495,260 @@ def calculate_recommendation(info, df=None):
     }
 
 
+@st.cache_data(ttl=600)
+def _grade_stock_cached(sym):
+    """Fetch info + price data and compute grades (cached)."""
+    try:
+        info = yf.Ticker(sym).info
+        df = yf.Ticker(sym).history(period="1y", interval="1d")
+    except Exception:
+        info, df = {}, pd.DataFrame()
+    return grade_stock(info, df)
+
+
+def grade_stock(info, df=None):
+    """
+    Grade a stock 0-100 across multiple categories.
+    Returns dict with per-category grades, a weighted final grade,
+    a text rating, and a rating colour.
+    """
+    def _clamp(v):
+        return max(0, min(100, v))
+
+    # ── FUNDAMENTAL (weight 25%) ──
+    fund = 50  # default
+    pe = info.get("trailingPE")
+    if pe is not None and pe > 0:
+        if pe < 12:
+            fund = 92
+        elif pe < 18:
+            fund = 70 + (18 - pe) / 6 * 20  # 70-90
+        elif pe < 25:
+            fund = 50 + (25 - pe) / 7 * 20  # 50-70
+        elif pe <= 40:
+            fund = 30 + (40 - pe) / 15 * 20  # 30-50
+        else:
+            fund = 10 + max(0, (60 - pe)) / 20 * 20  # 10-30
+    fwd_pe = info.get("forwardPE")
+    if pe and fwd_pe and pe > 0 and fwd_pe > 0 and fwd_pe < pe:
+        fund += 10
+    peg = info.get("pegRatio")
+    if peg is not None:
+        if 0 < peg < 1:
+            fund += 15
+        elif 1 <= peg <= 2:
+            fund += 5
+    ev_ebitda = info.get("enterpriseToEbitda")
+    if ev_ebitda is not None and 0 < ev_ebitda < 10:
+        fund += 10
+    pb = info.get("priceToBook")
+    if pb is not None and 0 < pb < 2:
+        fund += 5
+    fund = _clamp(fund)
+
+    # ── FINANCIAL HEALTH (weight 20%) ──
+    fh = 50
+    cr = info.get("currentRatio")
+    if cr is not None:
+        if cr > 2:
+            fh = 92
+        elif cr > 1.5:
+            fh = 70
+        elif cr > 1:
+            fh = 50
+        else:
+            fh = 30
+    de = info.get("debtToEquity")
+    if de is not None:
+        if de < 30:
+            fh = max(fh, 90)
+        elif de < 50:
+            fh = max(fh, 70)
+        elif de < 100:
+            fh = max(fh, 50)
+        else:
+            fh = min(fh, 40)
+    fcf_v = info.get("freeCashflow")
+    rev = info.get("totalRevenue")
+    if fcf_v is not None and fcf_v > 0:
+        fh += 15
+        if rev and rev > 0:
+            fcf_margin = fcf_v / rev * 100
+            if fcf_margin > 15:
+                fh += 10
+    roe = info.get("returnOnEquity")
+    if roe is not None:
+        if roe > 0.20:
+            fh += 15
+        elif roe > 0.15:
+            fh += 10
+    roa = info.get("returnOnAssets")
+    if roa is not None and roa > 0.10:
+        fh += 10
+    fh = _clamp(fh)
+
+    # ── GROWTH (weight 20%) ──
+    gro = 50
+    rev_growth = info.get("revenueGrowth")
+    if rev_growth is not None:
+        if rev_growth > 0.20:
+            gro = 92
+        elif rev_growth > 0.10:
+            gro = 70
+        elif rev_growth > 0.05:
+            gro = 55
+        elif rev_growth >= 0:
+            gro = 40
+        else:
+            gro = 20
+    earn_growth = info.get("earningsGrowth")
+    if earn_growth is not None:
+        if earn_growth > 0.25:
+            gro += 20
+        elif earn_growth > 0.10:
+            gro += 10
+    if rev_growth is not None and earn_growth is not None:
+        if rev_growth > 0 and earn_growth > 0:
+            gro += 10
+    gro = _clamp(gro)
+
+    # ── TECHNICAL (weight 15%) ──
+    tech = 50
+    if df is not None and not df.empty and len(df) > 10:
+        try:
+            close = df["Close"].iloc[-1]
+            sma50 = df["Close"].rolling(50).mean().iloc[-1] if len(df) >= 50 else None
+            sma200 = df["Close"].rolling(200).mean().iloc[-1] if len(df) >= 200 else None
+            if sma200 is not None and not np.isnan(sma200) and close > sma200:
+                tech += 25
+            if sma50 is not None and not np.isnan(sma50) and close > sma50:
+                tech += 15
+            if (sma50 is not None and sma200 is not None
+                    and not np.isnan(sma50) and not np.isnan(sma200)
+                    and sma50 > sma200):
+                tech += 15  # golden cross
+            # RSI
+            delta = df["Close"].diff()
+            gain = delta.where(delta > 0, 0).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            rs = gain / loss
+            rsi = (100 - (100 / (1 + rs))).iloc[-1]
+            if not np.isnan(rsi):
+                if rsi < 30:
+                    tech += 15  # oversold opportunity
+                elif rsi <= 70:
+                    tech += 10  # neutral
+                else:
+                    tech -= 5   # overbought
+            # MACD
+            ema12 = df["Close"].ewm(span=12).mean()
+            ema26 = df["Close"].ewm(span=26).mean()
+            macd = ema12 - ema26
+            macd_sig = macd.ewm(span=9).mean()
+            if macd.iloc[-1] > macd_sig.iloc[-1]:
+                tech += 10
+        except Exception:
+            pass
+    tech = _clamp(tech)
+
+    # ── QUANTITATIVE (weight 10%) ──
+    quant = 50
+    if df is not None and not df.empty and len(df) > 20:
+        try:
+            rets = df["Close"].pct_change().dropna()
+            ann_vol = rets.std() * np.sqrt(252) * 100
+            if ann_vol < 25:
+                quant += 20
+            elif ann_vol > 50:
+                quant -= 10
+        except Exception:
+            pass
+    beta = info.get("beta")
+    if beta is not None:
+        if 0.8 <= beta <= 1.2:
+            quant += 10
+        elif beta > 2.0:
+            quant -= 10
+    quant = _clamp(quant)
+
+    # ── DIVIDEND (weight 5%) ──
+    div_grade = 50
+    div_yield = info.get("dividendYield")
+    if div_yield is not None:
+        if div_yield > 0.04:
+            div_grade = 90
+        elif div_yield > 0.02:
+            div_grade = 70
+        elif div_yield > 0.01:
+            div_grade = 50
+        elif div_yield == 0 or div_yield < 0.001:
+            div_grade = 30
+    payout = info.get("payoutRatio")
+    if payout is not None and 0 < payout < 0.60:
+        div_grade += 10
+    div_grade = _clamp(div_grade)
+
+    # ── SENTIMENT (weight 5%) ──
+    sent = 50
+    rec_key = (info.get("recommendationKey") or "").lower()
+    if rec_key == "strong_buy":
+        sent = 90
+    elif rec_key == "buy":
+        sent = 75
+    elif rec_key == "hold":
+        sent = 50
+    elif rec_key in ("sell", "underperform"):
+        sent = 25
+    elif rec_key == "strong_sell":
+        sent = 10
+    if info.get("targetMeanPrice"):
+        sent += 5
+    sent = _clamp(sent)
+
+    # ── FINAL GRADE (weighted average) ──
+    final = (
+        fund * 0.25
+        + fh * 0.20
+        + gro * 0.20
+        + tech * 0.15
+        + quant * 0.10
+        + div_grade * 0.05
+        + sent * 0.05
+    )
+    final = _clamp(round(final))
+
+    # ── Rating based on final grade ──
+    if final >= 85:
+        rating, rating_color = "Strong Strong Buy", "#1b5e20"
+    elif final >= 75:
+        rating, rating_color = "Strong Buy", "#2e7d32"
+    elif final >= 65:
+        rating, rating_color = "Buy", "#34c759"
+    elif final >= 55:
+        rating, rating_color = "Moderate Buy", "#66bb6a"
+    elif final >= 45:
+        rating, rating_color = "Hold", "#ff9500"
+    elif final >= 35:
+        rating, rating_color = "Moderate Sell", "#ff6b6b"
+    elif final >= 25:
+        rating, rating_color = "Sell", "#ff3b30"
+    else:
+        rating, rating_color = "Strong Sell", "#b71c1c"
+
+    return {
+        "fundamental": _clamp(round(fund)),
+        "financial_health": _clamp(round(fh)),
+        "growth": _clamp(round(gro)),
+        "technical": _clamp(round(tech)),
+        "quantitative": _clamp(round(quant)),
+        "dividend": _clamp(round(div_grade)),
+        "sentiment": _clamp(round(sent)),
+        "final": final,
+        "rating": rating,
+        "rating_color": rating_color,
+    }
+
+
 def render_recommendation_badge(rec):
     """Render a prominent recommendation badge."""
     bg_map = {
@@ -532,6 +786,110 @@ def render_recommendation_badge(rec):
                     <div style="font-size:18px;font-weight:600">${rec['target_high']:.2f}</div>
                 </div>
             </div>
+        </div>
+    </div>"""
+
+
+def render_grade_card(grades, rec):
+    """Render a grade card showing final grade + category grades + price targets."""
+    final = grades["final"]
+    rating = grades["rating"]
+    rating_color = grades["rating_color"]
+
+    # Pick ring colour based on grade
+    if final >= 75:
+        ring_color = "#34c759"
+        ring_track = "#eafaf0"
+    elif final >= 55:
+        ring_color = "#007aff"
+        ring_track = "#eef4ff"
+    elif final >= 45:
+        ring_color = "#ff9500"
+        ring_track = "#fff6e8"
+    else:
+        ring_color = "#ff3b30"
+        ring_track = "#fef0ef"
+
+    # Upside from recommendation
+    upside_text = f"+{rec['upside']:.1f}%" if rec["upside"] > 0 else f"{rec['upside']:.1f}%"
+    upside_color = "#2e7d32" if rec["upside"] > 0 else "#c62828"
+
+    # Category cards
+    categories = [
+        ("Fundamental", grades["fundamental"], "25%"),
+        ("Financial Health", grades["financial_health"], "20%"),
+        ("Growth", grades["growth"], "20%"),
+        ("Technical", grades["technical"], "15%"),
+        ("Quantitative", grades["quantitative"], "10%"),
+        ("Dividend", grades["dividend"], "5%"),
+        ("Sentiment", grades["sentiment"], "5%"),
+    ]
+
+    cat_cards_html = ""
+    for cat_name, cat_grade, cat_weight in categories:
+        if cat_grade >= 75:
+            cg_color = "#34c759"
+            cg_bg = "#eafaf0"
+        elif cat_grade >= 55:
+            cg_color = "#007aff"
+            cg_bg = "#eef4ff"
+        elif cat_grade >= 45:
+            cg_color = "#ff9500"
+            cg_bg = "#fff6e8"
+        else:
+            cg_color = "#ff3b30"
+            cg_bg = "#fef0ef"
+        cat_cards_html += f"""<div style="flex:1;min-width:100px;background:{cg_bg};border-radius:12px;padding:12px 14px;text-align:center">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#86868b">{cat_name}</div>
+            <div style="font-size:24px;font-weight:700;color:{cg_color};margin:4px 0">{cat_grade}</div>
+            <div style="font-size:10px;color:#aeaeb2">wt {cat_weight}</div>
+        </div>"""
+
+    # SVG circular gauge for final grade
+    pct_val = final / 100
+    circumference = 2 * 3.14159 * 42
+    dash = pct_val * circumference
+    gap = circumference - dash
+
+    return f"""<div style="background:white;border:1px solid #f0f0f5;border-radius:16px;padding:24px;margin:16px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04)">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:20px">
+            <div style="display:flex;align-items:center;gap:20px">
+                <div style="position:relative;width:100px;height:100px">
+                    <svg width="100" height="100" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="42" fill="none" stroke="{ring_track}" stroke-width="6"/>
+                        <circle cx="50" cy="50" r="42" fill="none" stroke="{ring_color}" stroke-width="6"
+                                stroke-dasharray="{dash:.1f} {gap:.1f}"
+                                stroke-linecap="round"
+                                transform="rotate(-90 50 50)"/>
+                    </svg>
+                    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">
+                        <div style="font-size:28px;font-weight:700;color:#1d1d1f;line-height:1">{final}</div>
+                        <div style="font-size:10px;color:#86868b">/100</div>
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#86868b">Stock Grade</div>
+                    <div style="font-size:24px;font-weight:700;color:{rating_color};margin-top:2px">{rating}</div>
+                </div>
+            </div>
+            <div style="display:flex;gap:24px;flex-wrap:wrap">
+                <div style="text-align:center">
+                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#86868b">Bear Case</div>
+                    <div style="font-size:18px;font-weight:600;color:#1d1d1f">${rec['target_low']:.2f}</div>
+                </div>
+                <div style="text-align:center">
+                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#86868b">Target Price</div>
+                    <div style="font-size:24px;font-weight:700;color:#1d1d1f">${rec['target_mid']:.2f}</div>
+                    <div style="font-size:13px;font-weight:600;color:{upside_color}">{upside_text}</div>
+                </div>
+                <div style="text-align:center">
+                    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#86868b">Bull Case</div>
+                    <div style="font-size:18px;font-weight:600;color:#1d1d1f">${rec['target_high']:.2f}</div>
+                </div>
+            </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:20px;flex-wrap:wrap">
+            {cat_cards_html}
         </div>
     </div>"""
 
@@ -589,9 +947,10 @@ def render_stock_detail(tk, pick=None, raw=None, key_prefix="detail"):
         </div>
     </div>""", unsafe_allow_html=True)
 
-    # ── RECOMMENDATION BADGE ──
+    # ── GRADE CARD + RECOMMENDATION ──
     rec = calculate_recommendation(info, sdf)
-    st.markdown(render_recommendation_badge(rec), unsafe_allow_html=True)
+    grades = grade_stock(info, sdf)
+    st.markdown(render_grade_card(grades, rec), unsafe_allow_html=True)
 
     # Key reasons
     if rec["reasons"]:

@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shared import (
     inject_css, page_header, get_latest_report, normalize_pick,
     render_stock_detail, calculate_recommendation, get_stock_info,
+    _grade_stock_cached, grade_stock,
 )
 from tools.universe import get_universe, SECTOR_MAP, get_sector
 
@@ -101,16 +102,72 @@ if search_query:
 
 # ─── Sort ────────────────────────────────────────────────────────────
 
+GRADE_SORT_OPTIONS = [
+    "Final Grade (Best First)",
+    "Final Grade (Worst First)",
+    "Fundamental Grade",
+    "Financial Health Grade",
+    "Growth Grade",
+    "Technical Grade",
+]
+
+GRADE_KEY_MAP = {
+    "Final Grade (Best First)": "final",
+    "Final Grade (Worst First)": "final",
+    "Fundamental Grade": "fundamental",
+    "Financial Health Grade": "financial_health",
+    "Growth Grade": "growth",
+    "Technical Grade": "technical",
+}
+
 sort_col = st.columns([1, 3])
 with sort_col[0]:
     sort_option = st.selectbox(
         "Sort by",
-        ["Alphabetical", "Market"],
+        ["Alphabetical", "Market"] + GRADE_SORT_OPTIONS,
         index=0,
         key="stock_detail_sort",
     )
 
-if sort_option == "Alphabetical":
+# ─── Compute grades for filtered stocks when sorting by grade ────────
+
+grades_map = {}  # ticker -> grade dict
+
+if sort_option in GRADE_SORT_OPTIONS:
+    # Limit to 50 stocks to avoid excessive API calls
+    tickers_to_grade = filtered["Ticker"].tolist()[:50]
+    if len(filtered) > 50:
+        st.info(f"Grading the first 50 of {len(filtered):,} filtered stocks. Narrow your filters for more precise sorting.")
+
+    progress_placeholder = st.empty()
+    progress_placeholder.markdown(
+        '<div style="font-size:13px;color:#86868b;margin:4px 0">Calculating grades...</div>',
+        unsafe_allow_html=True,
+    )
+
+    for tk in tickers_to_grade:
+        try:
+            grades_map[tk] = _grade_stock_cached(tk)
+        except Exception:
+            grades_map[tk] = {
+                "fundamental": 50, "financial_health": 50, "growth": 50,
+                "technical": 50, "quantitative": 50, "dividend": 50,
+                "sentiment": 50, "final": 50, "rating": "Hold",
+                "rating_color": "#ff9500",
+            }
+
+    progress_placeholder.empty()
+
+    # Add grade column and sort
+    grade_key = GRADE_KEY_MAP[sort_option]
+    filtered = filtered.copy()
+    filtered["_grade"] = filtered["Ticker"].map(
+        lambda t: grades_map.get(t, {}).get(grade_key, 50)
+    )
+    ascending = sort_option == "Final Grade (Worst First)"
+    filtered = filtered.sort_values("_grade", ascending=ascending)
+    filtered = filtered.drop(columns=["_grade"])
+elif sort_option == "Alphabetical":
     filtered = filtered.sort_values("Ticker")
 elif sort_option == "Market":
     filtered = filtered.sort_values(["Market", "Ticker"])
@@ -131,12 +188,19 @@ st.markdown(f"""<div style="display:flex;gap:16px;margin:16px 0 24px">
 display_options = []
 for _, row in filtered.iterrows():
     tk = row["Ticker"]
+    grade_info = grades_map.get(tk)
+    base = f"{tk} | {row['Sector']} | {row['Market']}"
+    parts = []
+    if grade_info:
+        parts.append(f"Grade: {grade_info['final']}/100 ({grade_info['rating']})")
     if tk in scan_picks_map:
         p = scan_picks_map[tk]["pick"]
         conf = p.get("confidence", 0)
-        display_options.append(f"{tk} | {row['Sector']} | {row['Market']} | AI PICK ({conf:.0f}%)")
+        parts.append(f"AI PICK ({conf:.0f}%)")
+    if parts:
+        display_options.append(f"{base} | {' | '.join(parts)}")
     else:
-        display_options.append(f"{tk} | {row['Sector']} | {row['Market']}")
+        display_options.append(base)
 
 if not display_options:
     st.info("No stocks match your filters. Try adjusting the market, sector, or search query.")
