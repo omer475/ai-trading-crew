@@ -871,11 +871,21 @@ def render_recommendation_badge(rec):
     </div>"""
 
 
-def render_grade_card(grades, rec):
+def render_grade_card(grades, rec, pick=None):
     """Render a grade card showing final grade + category grades + price targets."""
     final = grades["final"]
     rating = grades["rating"]
     rating_color = grades["rating_color"]
+
+    # Use scan targets when available (consistency with table), fall back to analyst targets
+    if pick and pick.get("target") and pick["target"] > 0:
+        rec = dict(rec)  # don't mutate original
+        rec["target_mid"] = pick["target"]
+        rec["target_low"] = pick.get("entry_low") or pick["target"] * 0.93
+        rec["target_high"] = pick.get("entry_high") or pick["target"] * 1.07
+        curr_price = pick.get("price", 0)
+        if curr_price > 0:
+            rec["upside"] = (rec["target_mid"] - curr_price) / curr_price * 100
 
     # Pick ring colour based on grade
     if final >= 75:
@@ -1023,18 +1033,21 @@ def render_stock_detail(tk, pick=None, raw=None, key_prefix="detail"):
         <div style="display:flex;gap:32px;margin-top:20px">
             <div><span style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.5px">Market Cap</span><br><span style="font-size:16px;font-weight:600;color:white">{fmt(info.get("marketCap"))}</span></div>
             <div><span style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.5px">Sector</span><br><span style="font-size:16px;font-weight:600;color:white">{info.get("sector", "\u2014")}</span></div>
-            <div><span style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.5px">P/E</span><br><span style="font-size:16px;font-weight:600;color:white">{f'{info["trailingPE"]:.1f}' if info.get("trailingPE") else "\u2014"}</span></div>
-            <div><span style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.5px">Div Yield</span><br><span style="font-size:16px;font-weight:600;color:white">{f'{info["dividendYield"]*100:.2f}%' if info.get("dividendYield") else "\u2014"}</span></div>
+            <div><span style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.5px">P/E</span><br><span style="font-size:16px;font-weight:600;color:white">{f'{info["trailingPE"]:.1f}' if info.get("trailingPE") is not None else "\u2014"}</span></div>
+            <div><span style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.5px">Div Yield</span><br><span style="font-size:16px;font-weight:600;color:white">{f'{info["dividendYield"]*100:.2f}%' if info.get("dividendYield") is not None else "\u2014"}</span></div>
         </div>
     </div>""", unsafe_allow_html=True)
 
-    # ── GRADE CARD + RECOMMENDATION ──
-    rec = calculate_recommendation(info, sdf)
+    # ── GRADE CARD (single source of truth for rating) ──
     grades = grade_stock(info, sdf)
-    st.markdown(render_grade_card(grades, rec), unsafe_allow_html=True)
+    # Use calculate_recommendation only for price targets and reasoning text
+    rec = calculate_recommendation(info, sdf)
+    st.markdown(render_grade_card(grades, rec, pick=pick), unsafe_allow_html=True)
 
-    # Key reasons
-    if rec["reasons"]:
+    # Show reasoning from either scan pick or calculated
+    if pick and pick.get("reason"):
+        pass  # Will be shown in the Analysis Summary section below
+    elif rec["reasons"]:
         reasons_html = " &middot; ".join(rec["reasons"])
         st.markdown(f'<div style="font-size:13px;color:#86868b;margin:-8px 0 16px;line-height:1.6">{reasons_html}</div>', unsafe_allow_html=True)
 
