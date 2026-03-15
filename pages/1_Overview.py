@@ -83,10 +83,9 @@ if report:
                     {progress_bar(conf, 100, p_color)}
                     <div class="caption" style="margin-top:4px">{conf:.0f}% confidence</div>
                 </div>""", unsafe_allow_html=True)
-                if st.button(f"View Full Analysis", key=f"overview_btn_{i}", use_container_width=True):
+                if st.button(f"View Analysis", key=f"overview_btn_{i}", use_container_width=True):
                     st.session_state["selected_stock"] = tk
-                    st.session_state["selected_stock_source"] = "overview"
-                    st.switch_page("pages/3_Stock_Detail.py")
+                    st.switch_page("pages/5_Analysis.py")
 
 else:
     st.markdown("""<div style="text-align:center;padding:100px 0">

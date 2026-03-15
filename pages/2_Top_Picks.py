@@ -60,8 +60,7 @@ if report and report.get("picks"):
 
                 if st.button(f"View Analysis", key=f"picks_btn_{row_start + i}", use_container_width=True):
                     st.session_state["selected_stock"] = tk
-                    st.session_state["selected_stock_source"] = "picks"
-                    st.switch_page("pages/3_Stock_Detail.py")
+                    st.switch_page("pages/5_Analysis.py")
 
     st.markdown("---")
 
