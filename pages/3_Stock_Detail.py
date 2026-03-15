@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shared import (
     inject_css, page_header, get_latest_report, normalize_pick,
     render_stock_detail, calculate_recommendation, get_stock_info,
-    _grade_stock_cached, grade_stock,
+    _grade_stock_cached, grade_stock, grade_from_scan_signals,
 )
 from tools.universe import get_universe, SECTOR_MAP, get_sector
 
@@ -47,10 +47,15 @@ universe_df = build_universe_df()
 
 report = get_latest_report()
 scan_picks_map = {}
+scan_grades_map = {}  # pre-computed grades from scan data (instant, no API)
 if report and report.get("picks"):
     for rp in report["picks"]:
         np_ = normalize_pick(rp)
         scan_picks_map[np_["ticker"]] = {"pick": np_, "raw": rp}
+        # Pre-compute grade from scanner_signals (no API call needed)
+        signals = rp.get("scanner_signals", {})
+        if signals:
+            scan_grades_map[np_["ticker"]] = grade_from_scan_signals(signals)
 
 # ─── Header ──────────────────────────────────────────────────────────
 
@@ -131,42 +136,24 @@ with sort_col[0]:
 
 # ─── Compute grades for filtered stocks when sorting by grade ────────
 
-grades_map = {}  # ticker -> grade dict
+grades_map = dict(scan_grades_map)  # start with pre-computed scan grades (instant)
 
 if sort_option in GRADE_SORT_OPTIONS:
-    # Limit to 50 stocks to avoid excessive API calls
-    tickers_to_grade = filtered["Ticker"].tolist()[:50]
-    if len(filtered) > 50:
-        st.info(f"Grading the first 50 of {len(filtered):,} filtered stocks. Narrow your filters for more precise sorting.")
+    # For stocks NOT in scan data, assign default grade of 50
+    # Only the scan-analyzed stocks get real grades (no slow API calls)
+    if not grades_map:
+        st.info("Run a scan first to enable grade-based sorting. Grades are computed during the scan.")
 
-    progress_placeholder = st.empty()
-    progress_placeholder.markdown(
-        '<div style="font-size:13px;color:#86868b;margin:4px 0">Calculating grades...</div>',
-        unsafe_allow_html=True,
-    )
-
-    for tk in tickers_to_grade:
-        try:
-            grades_map[tk] = _grade_stock_cached(tk)
-        except Exception:
-            grades_map[tk] = {
-                "fundamental": 50, "financial_health": 50, "growth": 50,
-                "technical": 50, "quantitative": 50, "dividend": 50,
-                "sentiment": 50, "final": 50, "rating": "Hold",
-                "rating_color": "#ff9500",
-            }
-
-    progress_placeholder.empty()
-
-    # Add grade column and sort
     grade_key = GRADE_KEY_MAP[sort_option]
     filtered = filtered.copy()
     filtered["_grade"] = filtered["Ticker"].map(
         lambda t: grades_map.get(t, {}).get(grade_key, 50)
     )
+    # Put graded stocks first, then ungraded
+    filtered["_has_grade"] = filtered["Ticker"].map(lambda t: 1 if t in grades_map else 0)
     ascending = sort_option == "Final Grade (Worst First)"
-    filtered = filtered.sort_values("_grade", ascending=ascending)
-    filtered = filtered.drop(columns=["_grade"])
+    filtered = filtered.sort_values(["_has_grade", "_grade"], ascending=[False, ascending])
+    filtered = filtered.drop(columns=["_grade", "_has_grade"])
 elif sort_option == "Alphabetical":
     filtered = filtered.sort_values("Ticker")
 elif sort_option == "Market":
@@ -196,7 +183,12 @@ for _, row in filtered.iterrows():
     if tk in scan_picks_map:
         p = scan_picks_map[tk]["pick"]
         conf = p.get("confidence", 0)
+        tgt = p.get("target", 0)
+        price = p.get("price", 0)
+        upside = ((tgt - price) / price * 100) if price > 0 and tgt > 0 else 0
         parts.append(f"AI PICK ({conf:.0f}%)")
+        if tgt > 0:
+            parts.append(f"Target: ${tgt:.2f} ({upside:+.0f}%)")
     if parts:
         display_options.append(f"{base} | {' | '.join(parts)}")
     else:

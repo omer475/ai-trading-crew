@@ -506,6 +506,87 @@ def _grade_stock_cached(sym):
     return grade_stock(info, df)
 
 
+def grade_from_scan_signals(signals):
+    """
+    Calculate a grade from scanner_signals data (already in the JSON report).
+    No API calls needed — instant.
+    """
+    def _clamp(v):
+        return max(0, min(100, round(v)))
+
+    pe = signals.get("pe_ratio")
+    fwd_pe = signals.get("forward_pe")
+    rev_growth = signals.get("revenue_growth")
+    margins = signals.get("profit_margins")
+    pb = signals.get("price_to_book")
+    rsi = signals.get("rsi", 50)
+    above_50 = signals.get("above_sma_50", False)
+    above_200 = signals.get("above_sma_200", False)
+    golden = signals.get("golden_cross", False)
+    macd_bull = signals.get("macd_bullish_cross", False)
+    score = signals.get("score", 50)
+
+    # Fundamental
+    fund = 50
+    if pe and pe > 0:
+        if pe < 12: fund = 92
+        elif pe < 18: fund = 75
+        elif pe < 25: fund = 55
+        else: fund = 35
+    if fwd_pe and pe and fwd_pe < pe: fund += 10
+    if pb and 0 < pb < 2: fund += 5
+    fund = _clamp(fund)
+
+    # Financial health (from margins as proxy)
+    fh = 50
+    if margins and margins > 0.20: fh = 85
+    elif margins and margins > 0.10: fh = 65
+    elif margins and margins > 0: fh = 50
+    fh = _clamp(fh)
+
+    # Growth
+    gro = 50
+    if rev_growth:
+        if rev_growth > 0.20: gro = 92
+        elif rev_growth > 0.10: gro = 70
+        elif rev_growth > 0.05: gro = 55
+        elif rev_growth > 0: gro = 40
+        else: gro = 20
+    gro = _clamp(gro)
+
+    # Technical
+    tech = 50
+    if above_200: tech += 25
+    if above_50: tech += 15
+    if golden: tech += 15
+    if rsi < 30: tech += 15
+    elif 30 <= rsi <= 70: tech += 10
+    else: tech -= 5
+    if macd_bull: tech += 10
+    tech = _clamp(tech)
+
+    # Use scanner score for quant
+    quant = _clamp(min(score, 100))
+
+    # Final (weighted)
+    final = _clamp(round(fund * 0.25 + fh * 0.20 + gro * 0.20 + tech * 0.15 + quant * 0.10 + 50 * 0.05 + 50 * 0.05))
+
+    if final >= 85: rating, color = "Strong Strong Buy", "#1b5e20"
+    elif final >= 75: rating, color = "Strong Buy", "#2e7d32"
+    elif final >= 65: rating, color = "Buy", "#34c759"
+    elif final >= 55: rating, color = "Moderate Buy", "#66bb6a"
+    elif final >= 45: rating, color = "Hold", "#ff9500"
+    elif final >= 35: rating, color = "Moderate Sell", "#ff6b6b"
+    elif final >= 25: rating, color = "Sell", "#ff3b30"
+    else: rating, color = "Strong Sell", "#b71c1c"
+
+    return {
+        "fundamental": fund, "financial_health": fh, "growth": gro,
+        "technical": tech, "quantitative": quant, "dividend": 50, "sentiment": 50,
+        "final": final, "rating": rating, "rating_color": color,
+    }
+
+
 def grade_stock(info, df=None):
     """
     Grade a stock 0-100 across multiple categories.
