@@ -21,6 +21,10 @@ st.markdown("""<style>
     .back-link:hover { color:#1d1d1f; }
 </style>""", unsafe_allow_html=True)
 
+# Read from query params first (from table link), then session state
+qp = st.query_params.get("ticker", "")
+if qp:
+    st.session_state["selected_stock"] = qp.upper()
 selected = st.session_state.get("selected_stock", "")
 
 if not selected:

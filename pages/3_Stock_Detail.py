@@ -99,7 +99,17 @@ page = min(st.session_state["pg"], total_pages - 1)
 start, end = page * PAGE_SIZE, min((page + 1) * PAGE_SIZE, len(df))
 page_df = df.iloc[start:end]
 
-rows_html = ""
+# Table header
+st.markdown("""<div style="display:grid;grid-template-columns:1.2fr 0.8fr 2fr 0.8fr 1.5fr 1.5fr;border-bottom:1px solid #e8e8ed;margin-top:8px">
+    <div style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px">Ticker</div>
+    <div style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px">Market</div>
+    <div style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px">Sector</div>
+    <div style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px">Grade</div>
+    <div style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px">Rating</div>
+    <div style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px">Status</div>
+</div>""", unsafe_allow_html=True)
+
+# Table rows — ticker is a clickable link, rest is styled text
 for _, row in page_df.iterrows():
     tk = row["Ticker"]
     g = row["Grade"]
@@ -117,28 +127,18 @@ for _, row in page_df.iterrows():
     status_html = f'<span style="background:#eef4ff;color:#1565c0;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600">{status}</span>' if status else ""
     target_html = f'<span style="color:#86868b;font-size:12px;margin-left:6px">{target}</span>' if target else ""
 
-    rows_html += f"""<tr>
-        <td style="padding:11px 16px;font-size:14px;font-weight:600;color:#1d1d1f">{tk}</td>
-        <td style="padding:11px 16px;font-size:13px;color:#86868b">{row['Market']}</td>
-        <td style="padding:11px 16px;font-size:13px;color:#424245">{row['Sector']}</td>
-        <td style="padding:11px 16px;font-size:15px;font-weight:700;color:{gc}">{grade_str}</td>
-        <td style="padding:11px 16px;font-size:12px;color:{gc};font-weight:500">{rating}</td>
-        <td style="padding:11px 16px">{status_html}{target_html}</td>
-    </tr>"""
-
-st.markdown(f"""<table style="width:100%;border-collapse:collapse;margin-top:8px">
-    <thead>
-        <tr style="border-bottom:1px solid #e8e8ed">
-            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Ticker</th>
-            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Market</th>
-            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Sector</th>
-            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Grade</th>
-            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Rating</th>
-            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#aeaeb2;text-transform:uppercase;letter-spacing:0.8px;text-align:left">Status</th>
-        </tr>
-    </thead>
-    <tbody style="border-top:none">{rows_html}</tbody>
-</table>""", unsafe_allow_html=True)
+    # Entire row is an <a> link styled as a table row
+    st.markdown(f"""<a href="/Analysis?ticker={tk}" target="_self" style="
+        display:grid;grid-template-columns:1.2fr 0.8fr 2fr 0.8fr 1.5fr 1.5fr;
+        border-bottom:1px solid #f5f5f7;text-decoration:none;transition:background 0.15s;cursor:pointer;
+    " onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='transparent'">
+        <div style="padding:11px 16px;font-size:14px;font-weight:600;color:#1d1d1f">{tk}</div>
+        <div style="padding:11px 16px;font-size:13px;color:#86868b">{row['Market']}</div>
+        <div style="padding:11px 16px;font-size:13px;color:#424245">{row['Sector']}</div>
+        <div style="padding:11px 16px;font-size:15px;font-weight:700;color:{gc}">{grade_str}</div>
+        <div style="padding:11px 16px;font-size:12px;color:{gc};font-weight:500">{rating}</div>
+        <div style="padding:11px 16px">{status_html}{target_html}</div>
+    </a>""", unsafe_allow_html=True)
 
 # ─── Pagination ──────────────────────────────────────────────────────
 
