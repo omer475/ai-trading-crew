@@ -565,11 +565,12 @@ def grade_from_scan_signals(signals):
     if macd_bull: tech += 10
     tech = _clamp(tech)
 
-    # Use scanner score for quant
+    # Use scanner score as the anchor — this is what the pipeline ranked by
     quant = _clamp(min(score, 100))
 
-    # Final (weighted)
-    final = _clamp(round(fund * 0.25 + fh * 0.20 + gro * 0.20 + tech * 0.15 + quant * 0.10 + 50 * 0.05 + 50 * 0.05))
+    # Final grade = scanner score (this is what the pipeline ranked by)
+    # Category grades provide breakdown detail, but final must match pipeline order
+    final = _clamp(round(score))
 
     if final >= 85: rating, color = "Strong Strong Buy", "#1b5e20"
     elif final >= 75: rating, color = "Strong Buy", "#2e7d32"
