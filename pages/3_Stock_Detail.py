@@ -43,10 +43,16 @@ if report:
         sig = rp.get("scanner_signals", {})
         if sig:
             grades_map[p["ticker"]] = grade_from_scan_signals(sig)
-    # Also load ALL candidates (more stocks with grades)
+    # Load ALL candidates
     for rp in report.get("all_candidates", []):
         sig = rp.get("scanner_signals", {})
         sym = rp.get("symbol") or sig.get("symbol", "")
+        if sig and sym and sym not in grades_map:
+            grades_map[sym] = grade_from_scan_signals(sig)
+    # Load ALL scanned stocks (every stock gets a grade)
+    for item in report.get("all_scanned_signals", []):
+        sym = item.get("symbol", "")
+        sig = item.get("scanner_signals", {})
         if sig and sym and sym not in grades_map:
             grades_map[sym] = grade_from_scan_signals(sig)
 

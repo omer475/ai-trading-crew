@@ -378,7 +378,8 @@ def stage_2_scan(universe: list[str],
     if len(top) > 10:
         print(f"  ... and {len(top) - 10} more candidates")
 
-    return top
+    # Return top candidates for AI + ALL results for grading
+    return top, results
 
 
 # ---------------------------------------------------------------------------
@@ -1015,8 +1016,13 @@ def _generate_html_report(results: list[CandidateResult],
 
 
 def stage_5_reports(results: list[CandidateResult],
-                    regime: RegimeResult) -> tuple[Path, Path]:
+                    regime: RegimeResult,
+                    all_ranked: list[CandidateResult] = None,
+                    all_scanned: list[dict] = None,
+                    stocks_scanned: int = 0) -> tuple[Path, Path]:
     """Generate HTML and JSON reports, print terminal summary."""
+    all_ranked = all_ranked or results
+    all_scanned = all_scanned or []
     print("\n" + "=" * 70)
     print("  STAGE 5: REPORT GENERATION")
     print("=" * 70 + "\n")
@@ -1042,9 +1048,13 @@ def stage_5_reports(results: list[CandidateResult],
             "holding_period_months": list(HOLDING_PERIOD_MONTHS),
         },
         "picks": [r.to_dict() for r in results],
-        "all_candidates": [r.to_dict() for r in all_ranked] if 'all_ranked' in dir() else [r.to_dict() for r in results],
-        "total_candidates_scanned": len(results),
-        "stocks_scanned": stocks_scanned if 'stocks_scanned' in dir() else len(results),
+        "all_candidates": [r.to_dict() for r in all_ranked],
+        "all_scanned_signals": [
+            {"symbol": s.get("symbol",""), "score": s.get("score",0), "scanner_signals": s}
+            for s in all_scanned
+        ],
+        "total_candidates_scanned": len(all_ranked),
+        "stocks_scanned": stocks_scanned,
     }
     json_path.write_text(json.dumps(json_data, indent=2, default=str), encoding="utf-8")
     print(f"  JSON report saved: {json_path}")
@@ -1106,7 +1116,8 @@ async def run_pipeline(market: Optional[str] = None,
         scan_top_n = 20  # be more selective in bear markets
         print("\n  [Regime adjustment] Reducing candidate pool — bear market detected")
 
-    candidates = stage_2_scan(universe, regime, top_n=scan_top_n)
+    candidates, all_scanned = stage_2_scan(universe, regime, top_n=scan_top_n)
+    stocks_scanned = len(all_scanned)
 
     if not candidates:
         print("\n  No candidates found matching criteria. Exiting.")
@@ -1128,7 +1139,7 @@ async def run_pipeline(market: Optional[str] = None,
         return
 
     # STAGE 5: Reports
-    html_path, json_path = stage_5_reports(final, regime)
+    html_path, json_path = stage_5_reports(final, regime, all_ranked=None, all_scanned=all_scanned, stocks_scanned=stocks_scanned)
 
     elapsed = datetime.now() - start_time
     print(f"\n{'=' * 70}")
