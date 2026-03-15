@@ -819,10 +819,13 @@ def stage_4_rankings(candidates: list[dict],
     # Filter by minimum confidence
     results = [r for r in results if r.confidence >= MIN_CONFIDENCE or r.verdict == "SCAN_ONLY"]
 
-    # Limit to top_n and assign ranks
-    results = results[:top_n]
-    for i, r in enumerate(results, 1):
+    # Save all ranked candidates before truncating
+    all_ranked = list(results)
+    for i, r in enumerate(all_ranked, 1):
         r.rank = i
+
+    # Limit to top_n for display/recommendations
+    results = results[:top_n]
 
     # Print summary
     print(f"  {'Rank':<5} {'Symbol':<8} {'Name':<25} {'Score':>6} {'Verdict':<10} "
@@ -1039,7 +1042,9 @@ def stage_5_reports(results: list[CandidateResult],
             "holding_period_months": list(HOLDING_PERIOD_MONTHS),
         },
         "picks": [r.to_dict() for r in results],
+        "all_candidates": [r.to_dict() for r in all_ranked] if 'all_ranked' in dir() else [r.to_dict() for r in results],
         "total_candidates_scanned": len(results),
+        "stocks_scanned": stocks_scanned if 'stocks_scanned' in dir() else len(results),
     }
     json_path.write_text(json.dumps(json_data, indent=2, default=str), encoding="utf-8")
     print(f"  JSON report saved: {json_path}")
