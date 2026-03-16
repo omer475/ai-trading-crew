@@ -44,7 +44,9 @@ APPLE_CSS = """
 }
 
 .stApp { background: var(--bg); font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
+/* Keep the header visible so sidebar toggle arrow works */
+header[data-testid="stHeader"] { background: transparent; }
 
 /* ── Typography ── */
 .hero-title { font-size: 44px; font-weight: 700; color: var(--text); letter-spacing: -1.5px; line-height: 1.1; }
