@@ -48,12 +48,32 @@ HOLDING_PERIOD_MONTHS = (3, 12) # long-term focus
 
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
 
-# The 5 condensed agents used for quick AI analysis
+# 2 agents per department (16 agents + Head Coach = 17 per stock)
 PIPELINE_AGENTS = {
-    "fa_value_investor":     "Warren",     # Value perspective
-    "fa_growth_analyst":     "Catherine",   # Growth perspective
-    "risk_portfolio":        "Viktor",      # Risk assessment
-    "risk_devils_advocate":  "Mei",         # Bear case / devil's advocate
+    # Technical Analysis (2)
+    "ta_trend_follower":     "Marcus",      # Trend following, weekly/monthly charts
+    "ta_momentum":           "Sophia",      # Momentum, RSI, breakouts
+    # Fundamental Analysis (2)
+    "fa_value_investor":     "Warren",      # Deep value, DCF, margin of safety
+    "fa_growth_analyst":     "Catherine",   # Growth metrics, TAM, market share
+    # Macro & Economics (2)
+    "macro_fed_watcher":     "Janet",       # Fed policy, interest rates
+    "macro_global":          "Hans",        # Global macro, geopolitics, currencies
+    # Sentiment & News (2)
+    "sent_news_scanner":     "Alex",        # Breaking news, SEC filings
+    "sent_insider_tracker":  "Victor",      # Insider buying/selling, 13F filings
+    # Quantitative (2)
+    "quant_stat_arb":        "Dr. Chen",    # Statistical models, mean reversion
+    "quant_factor_model":    "Anna",        # Factor analysis, Fama-French
+    # Risk Management (2)
+    "risk_portfolio":        "Viktor",      # Portfolio risk, VaR, position sizing
+    "risk_devils_advocate":  "Mei",         # Devil's advocate, bear case
+    # Execution (2)
+    "exec_order_manager":    "Ryan",        # Entry timing, DCA strategies
+    "exec_performance":      "Julia",       # Performance tracking, benchmarks
+    # Strategy (2)
+    "strat_contrarian":      "George",      # Contrarian plays, sentiment extremes
+    "strat_event_driven":    "Marcus B.",   # Event catalysts, earnings plays
 }
 HEAD_COACH_ID = "head_coach"
 
@@ -557,7 +577,7 @@ async def _analyze_single_stock(candidate: dict,
     )
 
     all_participants = [a for _, _, a in agents] + [coach]
-    termination = MaxMessageTermination(max_messages=8)
+    termination = MaxMessageTermination(max_messages=20)  # 17 agents need enough rounds
 
     team = SelectorGroupChat(
         participants=all_participants,
@@ -566,11 +586,38 @@ async def _analyze_single_stock(candidate: dict,
     )
 
     task = (
-        f"Evaluate this stock for a LONG-TERM investment (3-12 months).\n\n"
+        f"PROFESSIONAL INVESTMENT ANALYSIS — LONG-TERM HOLD (3-12 months)\n\n"
         f"{regime_context}\n\n"
         f"{brief}\n\n"
-        f"Each specialist: give your quick verdict (BUY/WATCH/PASS) with "
-        f"confidence 0-100 and brief reasoning. Head Coach: synthesize and decide."
+        f"INSTRUCTIONS FOR ALL ANALYSTS:\n"
+        f"This is a professional investment committee meeting. Each specialist must provide:\n"
+        f"1. Your VERDICT: BUY, WATCH, or PASS\n"
+        f"2. Your CONFIDENCE: 0-100\n"
+        f"3. DETAILED professional reasoning from your area of expertise:\n"
+        f"   - Technical analysts: analyze weekly/monthly trend, key support/resistance levels, "
+        f"momentum indicators, volume patterns, and optimal entry zones\n"
+        f"   - Fundamental analysts: analyze valuation metrics vs peers, earnings quality, "
+        f"competitive moat, revenue sustainability, and intrinsic value estimate\n"
+        f"   - Macro analysts: analyze how Fed policy, interest rates, sector rotation, "
+        f"and geopolitical factors affect this specific stock\n"
+        f"   - Sentiment analysts: analyze news flow, insider activity, institutional positioning, "
+        f"and market sentiment around this name\n"
+        f"   - Quant analysts: analyze factor exposures, volatility regime, statistical edge, "
+        f"and risk-adjusted expected return\n"
+        f"   - Risk analysts: analyze downside scenarios, max drawdown risk, position sizing, "
+        f"and what could go wrong. Devil's advocate must challenge the bull case.\n"
+        f"   - Execution: recommend entry strategy (DCA vs lump sum), timing, and order types\n"
+        f"   - Strategy: identify the primary catalyst and investment thesis\n\n"
+        f"4. KEY RISKS specific to this stock (not generic)\n"
+        f"5. PRICE TARGET with your methodology\n\n"
+        f"Be specific. Use numbers. Reference actual data from the brief above. "
+        f"This analysis will be shown to investors — make it institutional quality.\n\n"
+        f"Head Coach: After hearing all analysts, provide your FINAL DECISION with:\n"
+        f"- Overall verdict and confidence\n"
+        f"- Entry price range and stop loss\n"
+        f"- 6-month and 12-month price targets\n"
+        f"- Position size recommendation (% of portfolio)\n"
+        f"- Key conditions that would change your view"
     )
 
     # Collect responses
@@ -603,8 +650,9 @@ async def stage_3_ai_analysis(candidates: list[dict],
     print("\n" + "=" * 70)
     print("  STAGE 3: AI DEEP ANALYSIS")
     print(f"  Running 5 key agents on top {min(max_candidates, len(candidates))} candidates...")
-    print(f"  Agents: Warren (Value), Catherine (Growth), Viktor (Risk),")
-    print(f"          Mei (Devil's Advocate), Head Coach")
+    print(f"  16 agents (2 per department) + Head Coach = 17 per stock")
+    print(f"  Departments: Technical, Fundamental, Macro, Sentiment,")
+    print(f"               Quant, Risk, Execution, Strategy")
     print("=" * 70 + "\n")
 
     analysis_results: dict[str, list[AgentVerdict]] = {}

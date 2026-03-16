@@ -57,6 +57,7 @@ if st.button("Start Scan", use_container_width=True, key="scan_run_btn"):
         "London Stock Exchange": "lse",
         "US Stocks": "us",
     }
+    st.info("This may take 30-90 minutes with AI analysis, or 5-10 minutes with quick scan. Do not close this page.")
     with st.status("Scanning...", expanded=True) as status:
         try:
             import subprocess

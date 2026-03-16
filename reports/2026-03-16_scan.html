@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investment Scan Report - 2026-03-16</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               max-width: 1400px; margin: 0 auto; padding: 20px; background: #f5f6fa; color: #2c3e50; }
+        h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #34495e; margin-top: 30px; }
+        table { border-collapse: collapse; width: 100%; margin: 10px 0; background: #fff;
+                 border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        th { background: #34495e; color: white; padding: 10px 8px; text-align: left; font-size: 13px; }
+        td { padding: 8px; border-bottom: 1px solid #ecf0f1; font-size: 13px; }
+        tr:hover { background: #f8f9fa; }
+        .regime-badge { display: inline-block; padding: 8px 16px; border-radius: 20px;
+                         color: white; font-weight: bold; font-size: 18px; }
+        .config { background: #fff; padding: 15px; border-radius: 8px; margin: 10px 0;
+                   box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <h1>AI Trading Crew - Long-Term Investment Scan</h1>
+    <p><strong>Date:</strong> 2026-03-16 | <strong>Pipeline:</strong> 5-Stage Automated Scan
+       | <strong>Focus:</strong> Long-term (3-12 months)</p>
+
+    <h2>Market Regime</h2>
+    <div class="config">
+        <span class="regime-badge" style="background:#f39c12">NEUTRAL</span>
+        <p>Composite Score: -0.0408 | Confidence: 70.5%</p>
+        <p><strong>Strategy:</strong> Reduce position sizes. Prefer mean-reversion and range-bound strategies. Be very selective — quality over quantity.</p>
+        <p>Position sizing: 0.65x |
+           Sector bias: balanced |
+           Hedging: moderate</p>
+    </div>
+
+    <h3>Regime Signals</h3>
+    <table>
+        <tr><th>Signal</th><th>Score</th><th>Bar</th><th>Detail</th></tr>
+        
+        <tr>
+            <td>spy_trend</td>
+            <td>+0.089</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:9%;height:100%;background:#27ae60;
+                                border-radius:6px;float:right"></div>
+                </div>
+            </td>
+            <td><small>SPY 668.50 | 50-SMA 686.11 | 200-SMA 656.84 | Price below 50-SMA, above 200-SMA</small></td>
+        </tr>
+        <tr>
+            <td>vix</td>
+            <td>-0.118</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:12%;height:100%;background:#e74c3c;
+                                border-radius:6px;float:left"></div>
+                </div>
+            </td>
+            <td><small>VIX 23.75 (20-SMA 22.43)</small></td>
+        </tr>
+        <tr>
+            <td>breadth</td>
+            <td>-0.250</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:25%;height:100%;background:#e74c3c;
+                                border-radius:6px;float:left"></div>
+                </div>
+            </td>
+            <td><small>3/8 sectors above 50-SMA (38% participation)</small></td>
+        </tr>
+        <tr>
+            <td>sector_rotation</td>
+            <td>-0.403</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:40%;height:100%;background:#e74c3c;
+                                border-radius:6px;float:left"></div>
+                </div>
+            </td>
+            <td><small>Offensive avg 20d return -3.62% vs Defensive +0.41% (spread -4.03%) — RISK-OFF rotation</small></td>
+        </tr>
+        <tr>
+            <td>yield_curve</td>
+            <td>+0.313</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:31%;height:100%;background:#27ae60;
+                                border-radius:6px;float:right"></div>
+                </div>
+            </td>
+            <td><small>10Y 4.23% - 2Y proxy 3.60% = +0.63% (NORMAL)</small></td>
+        </tr>
+        <tr>
+            <td>credit_spread</td>
+            <td>+0.236</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:24%;height:100%;background:#27ae60;
+                                border-radius:6px;float:right"></div>
+                </div>
+            </td>
+            <td><small>HYG 20d ret -1.05% vs LQD -2.23% (spread +1.18%)</small></td>
+        </tr>
+        <tr>
+            <td>put_call_proxy</td>
+            <td>-0.500</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:50%;height:100%;background:#e74c3c;
+                                border-radius:6px;float:left"></div>
+                </div>
+            </td>
+            <td><small>VIX at 87% percentile (1Y). Current 23.75 — EXTREME FEAR</small></td>
+        </tr>
+        <tr>
+            <td>highs_lows</td>
+            <td>+0.250</td>
+            <td>
+                <div style="width:200px;height:12px;background:#eee;border-radius:6px;position:relative">
+                    <div style="width:25%;height:100%;background:#27ae60;
+                                border-radius:6px;float:right"></div>
+                </div>
+            </td>
+            <td><small>2 ETFs near 52w high, 0 near 52w low (net +2 out of 8)</small></td>
+        </tr>
+    </table>
+
+    <h2>Top Investment Picks</h2>
+    <table>
+        <tr>
+            <th>#</th><th>Stock</th><th>Price</th><th>Scan</th><th>AI</th>
+            <th>Combined</th><th>Verdict</th><th>Conf</th><th>Entry Range</th>
+            <th>Stop</th><th>Target</th><th>Hold</th><th>Reason</th>
+            <th>Agreed</th><th>Disagreed</th>
+        </tr>
+        
+        <tr>
+            <td><strong>1</strong></td>
+            <td><strong>STT</strong><br><small>State Street Corporation</small></td>
+            <td>$121.88</td>
+            <td>89.0</td>
+            <td>50.0</td>
+            <td><strong>89.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>89%</td>
+            <td>$121.04 - $124.03</td>
+            <td>$116.72</td>
+            <td>$140.16</td>
+            <td>4-8 months</td>
+            <td><small>Valuation: Trading at trailing P/E of 12.9x, forward P/E of 9.3x (indicating earnings acceleration), P/B of 1.40x, well </small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>2</strong></td>
+            <td><strong>CNX</strong><br><small>CNX Resources Corporation</small></td>
+            <td>$42.71</td>
+            <td>89.0</td>
+            <td>50.0</td>
+            <td><strong>89.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>89%</td>
+            <td>$41.10 - $43.51</td>
+            <td>$39.72</td>
+            <td>$49.11</td>
+            <td>4-8 months</td>
+            <td><small>Valuation: Trading at trailing P/E of 10.7x, forward P/E of 10.2x (indicating earnings acceleration), P/B of 1.40x, well</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>3</strong></td>
+            <td><strong>KEY</strong><br><small>KeyCorp</small></td>
+            <td>$19.09</td>
+            <td>88.0</td>
+            <td>50.0</td>
+            <td><strong>88.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>88%</td>
+            <td>$18.90 - $19.44</td>
+            <td>$18.21</td>
+            <td>$21.96</td>
+            <td>4-8 months</td>
+            <td><small>Valuation: Trading at trailing P/E of 12.5x, forward P/E of 9.0x (indicating earnings acceleration), P/B of 1.17x, well </small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>4</strong></td>
+            <td><strong>GPOR</strong><br><small>Gulfport Energy Corporation</small></td>
+            <td>$201.05</td>
+            <td>88.0</td>
+            <td>50.0</td>
+            <td><strong>88.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>88%</td>
+            <td>$192.25 - $205.45</td>
+            <td>$186.98</td>
+            <td>$231.21</td>
+            <td>4-8 months</td>
+            <td><small>Valuation: Trading at trailing P/E of 9.4x, forward P/E of 7.0x (indicating earnings acceleration), well below sector av</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>5</strong></td>
+            <td><strong>USB</strong><br><small>U.S. Bancorp</small></td>
+            <td>$51.62</td>
+            <td>87.0</td>
+            <td>50.0</td>
+            <td><strong>87.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>87%</td>
+            <td>$51.00 - $52.43</td>
+            <td>$49.37</td>
+            <td>$59.36</td>
+            <td>4-8 months</td>
+            <td><small>Valuation: Trading at trailing P/E of 11.1x, forward P/E of 9.2x (indicating earnings acceleration), P/B of 1.37x, well </small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>6</strong></td>
+            <td><strong>FHN</strong><br><small>First Horizon Corporation</small></td>
+            <td>$22.05</td>
+            <td>87.0</td>
+            <td>50.0</td>
+            <td><strong>87.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>87%</td>
+            <td>$21.74 - $22.43</td>
+            <td>$20.98</td>
+            <td>$25.36</td>
+            <td>4-8 months</td>
+            <td><small>Valuation: Trading at trailing P/E of 11.8x, forward P/E of 9.4x (indicating earnings acceleration), P/B of 1.26x, well </small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>7</strong></td>
+            <td><strong>GS</strong><br><small>Goldman Sachs Group, Inc. (The)</small></td>
+            <td>$797.96</td>
+            <td>86.0</td>
+            <td>50.0</td>
+            <td><strong>86.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>86%</td>
+            <td>$782.21 - $814.24</td>
+            <td>$749.64</td>
+            <td>$917.65</td>
+            <td>4-8 months</td>
+            <td><small>Valuation: Trading at trailing P/E of 15.5x, forward P/E of 12.2x (indicating earnings acceleration), well below sector </small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>8</strong></td>
+            <td><strong>PRU</strong><br><small>Prudential Financial, Inc.</small></td>
+            <td>$93.33</td>
+            <td>86.0</td>
+            <td>50.0</td>
+            <td><strong>86.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>86%</td>
+            <td>$92.00 - $94.81</td>
+            <td>$89.04</td>
+            <td>$107.33</td>
+            <td>4-8 months</td>
+            <td><small>Valuation: Trading at trailing P/E of 9.3x, forward P/E of 6.1x (indicating earnings acceleration), P/B of 1.00x, well b</small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>9</strong></td>
+            <td><strong>NTRS</strong><br><small>Northern Trust Corporation</small></td>
+            <td>$137.54</td>
+            <td>86.0</td>
+            <td>50.0</td>
+            <td><strong>86.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>86%</td>
+            <td>$136.92 - $139.88</td>
+            <td>$132.25</td>
+            <td>$158.18</td>
+            <td>4-8 months</td>
+            <td><small>Valuation: Trading at trailing P/E of 15.7x, forward P/E of 12.3x (indicating earnings acceleration), well below sector </small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+        <tr>
+            <td><strong>10</strong></td>
+            <td><strong>CFG</strong><br><small>Citizens Financial Group, Inc.</small></td>
+            <td>$56.48</td>
+            <td>85.0</td>
+            <td>50.0</td>
+            <td><strong>85.0</strong></td>
+            <td style="color:#3498db;font-weight:bold">SCAN_ONLY</td>
+            <td>85%</td>
+            <td>$55.64 - $57.54</td>
+            <td>$53.51</td>
+            <td>$64.95</td>
+            <td>4-8 months</td>
+            <td><small>Valuation: Trading at trailing P/E of 14.6x, forward P/E of 8.9x (indicating earnings acceleration), P/B of 1.00x, well </small></td>
+            <td style="color:green"><small>-</small></td>
+            <td style="color:red"><small>-</small></td>
+        </tr>
+    </table>
+
+    <h2>Detailed Analysis - Top 5</h2>
+    
+        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0;
+                     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <h3>#1 STT - State Street Corporation</h3>
+            <table style="width:100%;margin:8px 0">
+                <tr>
+                    <td><strong>Price:</strong> $121.88</td>
+                    <td><strong>Entry Range:</strong> $121.04 - $124.03</td>
+                    <td><strong>Stop Loss:</strong> $116.72</td>
+                    <td><strong>Target:</strong> $140.16</td>
+                </tr>
+                <tr>
+                    <td><strong>Scanner Score:</strong> 89.0</td>
+                    <td><strong>AI Score:</strong> 50.0</td>
+                    <td><strong>Combined:</strong> 89.0</td>
+                    <td><strong>Holding:</strong> 4-8 months</td>
+                </tr>
+            </table>
+            <p><strong>Why Buy:</strong> Valuation: Trading at trailing P/E of 12.9x, forward P/E of 9.3x (indicating earnings acceleration), P/B of 1.40x, well below sector averages. This suggests the market is underpricing the company's earnings power and asset base. Fundamentals: Revenue growing at 8% year-over-year, profit margins of 21% demonstrating operational efficiency. The combination of growth and profitability indicates a business with sustainable competitive advantages and strong pricing power. Technical picture: Price remains above the 200-day moving average, confirming the long-term structural uptrend is intact, and pulled back below the 50-day SMA while the 200-day uptrend remains intact — a potential mean-reversion entry opportunity, RSI bullish divergence detected, suggesting downside momentum is fading while the price prepares for a reversal. Risk/reward: Entry zone $121.04–$124.03 with a target of $140.16 (+15.0% upside) against a stop loss at $116.72 (-4.2% risk), yielding a 3.5:1 reward-to-risk ratio. Recommended holding period: 4-8 months.</p>
+            <h4>Agent Verdicts:</h4>
+            <p><em>No AI analysis (scanner-only mode)</em></p>
+        </div>
+        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0;
+                     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <h3>#2 CNX - CNX Resources Corporation</h3>
+            <table style="width:100%;margin:8px 0">
+                <tr>
+                    <td><strong>Price:</strong> $42.71</td>
+                    <td><strong>Entry Range:</strong> $41.10 - $43.51</td>
+                    <td><strong>Stop Loss:</strong> $39.72</td>
+                    <td><strong>Target:</strong> $49.11</td>
+                </tr>
+                <tr>
+                    <td><strong>Scanner Score:</strong> 89.0</td>
+                    <td><strong>AI Score:</strong> 50.0</td>
+                    <td><strong>Combined:</strong> 89.0</td>
+                    <td><strong>Holding:</strong> 4-8 months</td>
+                </tr>
+            </table>
+            <p><strong>Why Buy:</strong> Valuation: Trading at trailing P/E of 10.7x, forward P/E of 10.2x (indicating earnings acceleration), P/B of 1.40x, well below sector averages. This suggests the market is underpricing the company's earnings power and asset base. Fundamentals: Revenue growing at 41% year-over-year, profit margins of 31% demonstrating operational efficiency. The combination of growth and profitability indicates a business with sustainable competitive advantages and strong pricing power. Technical picture: Price remains above the 200-day moving average, confirming the long-term structural uptrend is intact, and holding above the 50-day SMA showing medium-term strength, MACD bullish crossover confirms shifting momentum to the upside. Risk/reward: Entry zone $41.10–$43.51 with a target of $49.11 (+15.0% upside) against a stop loss at $39.72 (-7.0% risk), yielding a 2.1:1 reward-to-risk ratio. Recommended holding period: 4-8 months.</p>
+            <h4>Agent Verdicts:</h4>
+            <p><em>No AI analysis (scanner-only mode)</em></p>
+        </div>
+        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0;
+                     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <h3>#3 KEY - KeyCorp</h3>
+            <table style="width:100%;margin:8px 0">
+                <tr>
+                    <td><strong>Price:</strong> $19.09</td>
+                    <td><strong>Entry Range:</strong> $18.90 - $19.44</td>
+                    <td><strong>Stop Loss:</strong> $18.21</td>
+                    <td><strong>Target:</strong> $21.96</td>
+                </tr>
+                <tr>
+                    <td><strong>Scanner Score:</strong> 88.0</td>
+                    <td><strong>AI Score:</strong> 50.0</td>
+                    <td><strong>Combined:</strong> 88.0</td>
+                    <td><strong>Holding:</strong> 4-8 months</td>
+                </tr>
+            </table>
+            <p><strong>Why Buy:</strong> Valuation: Trading at trailing P/E of 12.5x, forward P/E of 9.0x (indicating earnings acceleration), P/B of 1.17x, well below sector averages. This suggests the market is underpricing the company's earnings power and asset base. Fundamentals: Revenue growing at 132% year-over-year, profit margins of 26% demonstrating operational efficiency. The combination of growth and profitability indicates a business with sustainable competitive advantages and strong pricing power. Technical picture: Price remains above the 200-day moving average, confirming the long-term structural uptrend is intact, and pulled back below the 50-day SMA while the 200-day uptrend remains intact — a potential mean-reversion entry opportunity, RSI at 32 indicates oversold conditions — contrarian buying opportunity. Risk/reward: Entry zone $18.90–$19.44 with a target of $21.96 (+15.0% upside) against a stop loss at $18.21 (-4.6% risk), yielding a 3.2:1 reward-to-risk ratio. Recommended holding period: 4-8 months.</p>
+            <h4>Agent Verdicts:</h4>
+            <p><em>No AI analysis (scanner-only mode)</em></p>
+        </div>
+        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0;
+                     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <h3>#4 GPOR - Gulfport Energy Corporation</h3>
+            <table style="width:100%;margin:8px 0">
+                <tr>
+                    <td><strong>Price:</strong> $201.05</td>
+                    <td><strong>Entry Range:</strong> $192.25 - $205.45</td>
+                    <td><strong>Stop Loss:</strong> $186.98</td>
+                    <td><strong>Target:</strong> $231.21</td>
+                </tr>
+                <tr>
+                    <td><strong>Scanner Score:</strong> 88.0</td>
+                    <td><strong>AI Score:</strong> 50.0</td>
+                    <td><strong>Combined:</strong> 88.0</td>
+                    <td><strong>Holding:</strong> 4-8 months</td>
+                </tr>
+            </table>
+            <p><strong>Why Buy:</strong> Valuation: Trading at trailing P/E of 9.4x, forward P/E of 7.0x (indicating earnings acceleration), well below sector averages. This suggests the market is underpricing the company's earnings power and asset base. Fundamentals: Revenue growing at 25% year-over-year, profit margins of 33% demonstrating operational efficiency. The combination of growth and profitability indicates a business with sustainable competitive advantages and strong pricing power. Technical picture: Price remains above the 200-day moving average, confirming the long-term structural uptrend is intact, and holding above the 50-day SMA showing medium-term strength. Risk/reward: Entry zone $192.25–$205.45 with a target of $231.21 (+15.0% upside) against a stop loss at $186.98 (-7.0% risk), yielding a 2.1:1 reward-to-risk ratio. Recommended holding period: 4-8 months.</p>
+            <h4>Agent Verdicts:</h4>
+            <p><em>No AI analysis (scanner-only mode)</em></p>
+        </div>
+        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0;
+                     background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+            <h3>#5 USB - U.S. Bancorp</h3>
+            <table style="width:100%;margin:8px 0">
+                <tr>
+                    <td><strong>Price:</strong> $51.62</td>
+                    <td><strong>Entry Range:</strong> $51.00 - $52.43</td>
+                    <td><strong>Stop Loss:</strong> $49.37</td>
+                    <td><strong>Target:</strong> $59.36</td>
+                </tr>
+                <tr>
+                    <td><strong>Scanner Score:</strong> 87.0</td>
+                    <td><strong>AI Score:</strong> 50.0</td>
+                    <td><strong>Combined:</strong> 87.0</td>
+                    <td><strong>Holding:</strong> 4-8 months</td>
+                </tr>
+            </table>
+            <p><strong>Why Buy:</strong> Valuation: Trading at trailing P/E of 11.1x, forward P/E of 9.2x (indicating earnings acceleration), P/B of 1.37x, well below sector averages. This suggests the market is underpricing the company's earnings power and asset base. Fundamentals: Revenue growing at 5% year-over-year, profit margins of 29% demonstrating operational efficiency. The combination of growth and profitability indicates a business with sustainable competitive advantages and strong pricing power. Technical picture: Price remains above the 200-day moving average, confirming the long-term structural uptrend is intact, and pulled back below the 50-day SMA while the 200-day uptrend remains intact — a potential mean-reversion entry opportunity, RSI at 34 indicates oversold conditions — contrarian buying opportunity. Risk/reward: Entry zone $51.00–$52.43 with a target of $59.36 (+15.0% upside) against a stop loss at $49.37 (-4.3% risk), yielding a 3.4:1 reward-to-risk ratio. Recommended holding period: 4-8 months.</p>
+            <h4>Agent Verdicts:</h4>
+            <p><em>No AI analysis (scanner-only mode)</em></p>
+        </div>
+
+    <div class="config" style="margin-top:30px">
+        <h3>Pipeline Configuration</h3>
+        <p>Scan Interval: 2 weeks |
+           Max Positions: 8 |
+           Min Confidence: 65% |
+           Holding Period: 3-12 months</p>
+        <p><small>Generated by AI Trading Crew Pipeline v1.0</small></p>
+    </div>
+</body>
+</html>
