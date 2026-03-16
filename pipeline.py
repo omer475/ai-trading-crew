@@ -507,11 +507,10 @@ def _parse_agent_response(text: str, agent_id: str, agent_name: str) -> AgentVer
                 confidence = val
                 break
 
-    # Take the first 2-3 sentences as reasoning
-    sentences = text.replace("\n", " ").split(".")
-    reasoning = ". ".join(s.strip() for s in sentences[:3] if s.strip())
-    if len(reasoning) > 300:
-        reasoning = reasoning[:297] + "..."
+    # Keep the full reasoning (truncate only if extremely long)
+    reasoning = text.strip()
+    if len(reasoning) > 2000:
+        reasoning = reasoning[:1997] + "..."
 
     return AgentVerdict(
         agent_id=agent_id,
@@ -627,18 +626,31 @@ async def _analyze_single_stock(candidate: dict,
 
     try:
         async for message in team.run_stream(task=task):
-            if hasattr(message, "source") and hasattr(message, "content"):
-                source = message.source
-                content = message.content or ""
-                if source in agent_name_map and content.strip():
-                    pid, sn = agent_name_map[source]
-                    verdict = _parse_agent_response(content, pid, sn)
-                    verdicts.append(verdict)
-                    logger.debug("  [%s] %s (conf=%d): %s",
-                                 sn, verdict.verdict, verdict.confidence,
-                                 verdict.reasoning[:80])
+            # AutoGen 0.7 yields different message types
+            source = getattr(message, "source", None)
+            content = getattr(message, "content", None)
+
+            # Some messages wrap content in .messages list (TaskResult)
+            if not source and hasattr(message, "messages"):
+                for sub_msg in message.messages:
+                    s = getattr(sub_msg, "source", None)
+                    c = getattr(sub_msg, "content", None)
+                    if s and c and s in agent_name_map and s != "user":
+                        pid, sn = agent_name_map[s]
+                        v = _parse_agent_response(str(c), pid, sn)
+                        verdicts.append(v)
+                        print(f"    [{sn}] {v.verdict} ({v.confidence}%)")
+                continue
+
+            if source and content and source in agent_name_map and source != "user":
+                pid, sn = agent_name_map[source]
+                v = _parse_agent_response(str(content), pid, sn)
+                verdicts.append(v)
+                print(f"    [{sn}] {v.verdict} ({v.confidence}%)")
     except Exception as exc:
         logger.error("AI analysis failed for %s: %s", candidate["symbol"], exc)
+        import traceback
+        traceback.print_exc()
 
     return verdicts
 
