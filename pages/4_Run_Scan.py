@@ -70,13 +70,17 @@ if st.button("Start Scan", use_container_width=True, key="scan_run_btn"):
             if skip_ai:
                 cmd.append("--skip-ai")
 
+            env = os.environ.copy()
+            env["PYTHONUNBUFFERED"] = "1"
+
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
                 cwd=PROJECT_ROOT,
+                env=env,
             )
 
             out_area = st.empty()
@@ -87,13 +91,19 @@ if st.button("Start Scan", use_container_width=True, key="scan_run_btn"):
 
             proc.wait()
 
+            stderr_output = proc.stderr.read() if proc.stderr else ""
+
             if proc.returncode == 0:
                 status.update(label="Scan complete!", state="complete")
                 st.success("Scan finished successfully. Navigate to Overview or Top Picks to see results.")
                 st.cache_data.clear()
             else:
                 status.update(label="Scan failed", state="error")
-                st.error("The scan encountered an error. Check the output above.")
+                st.error(f"Scan failed with exit code {proc.returncode}")
+                if stderr_output:
+                    st.code(stderr_output[-2000:], language=None)
+                if lines:
+                    st.code("\n".join(lines[-10:]), language=None)
         except Exception as e:
             st.error(f"Error running scan: {str(e)}")
 
