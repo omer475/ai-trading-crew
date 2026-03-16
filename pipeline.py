@@ -1159,7 +1159,7 @@ async def run_pipeline(market: Optional[str] = None,
     # STAGE 2: Full Universe Scan
     universe = _get_universe(market)
     # Adjust number of candidates based on regime
-    scan_top_n = 30
+    scan_top_n = 60  # scan top 60, AI analyzes top 50
     if regime.regime in (MarketRegime.BEAR, MarketRegime.STRONG_BEAR):
         scan_top_n = 20  # be more selective in bear markets
         print("\n  [Regime adjustment] Reducing candidate pool — bear market detected")
@@ -1174,7 +1174,7 @@ async def run_pipeline(market: Optional[str] = None,
     # STAGE 3: AI Deep Analysis (optional)
     ai_results = None
     if not skip_ai:
-        max_ai = min(20, len(candidates))
+        max_ai = min(50, len(candidates))  # AI analyzes top 50 stocks
         ai_results = await stage_3_ai_analysis(candidates, regime, max_candidates=max_ai)
     else:
         print("\n  [--skip-ai] Skipping AI analysis stage")
