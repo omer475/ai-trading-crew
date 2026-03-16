@@ -6,7 +6,12 @@ Execute a full pipeline scan with progress tracking.
 import streamlit as st
 import os, sys, glob
 
-st.set_page_config(page_title="Run Scan | AI Trading Crew", page_icon="", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="Run Scan | AI Trading Crew",
+    page_icon="",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -17,12 +22,14 @@ page_header()
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-st.markdown('<div class="section-title" style="margin-top:0">Run Scan</div>', unsafe_allow_html=True)
-st.markdown('<div class="section-sub">Scan 1,003 stocks across LSE and US markets. AI agents find the best long-term investments.</div>', unsafe_allow_html=True)
+# ── Title ──
+st.markdown("""<div style="padding:24px 0 8px">
+    <div class="hero-title" style="font-size:36px">Run Scan</div>
+    <div class="hero-sub" style="font-size:15px">Scan 1,003 stocks across LSE and US markets. AI agents find the best long-term investments.</div>
+</div>""", unsafe_allow_html=True)
 
-# ─── Scan Configuration ─────────────────────────────────────────────
-
-st.markdown('<div class="section-title" style="font-size:20px;margin-top:0">Configuration</div>', unsafe_allow_html=True)
+# ── Configuration ──
+st.markdown('<div class="section-title" style="font-size:20px;margin-top:24px">Configuration</div>', unsafe_allow_html=True)
 
 sc1, sc2 = st.columns(2)
 with sc1:
@@ -39,12 +46,11 @@ with sc2:
         key="scan_top",
     )
 
-skip_ai = st.checkbox("Quick scan (skip AI analysis \u2014 faster)", value=False, key="scan_skip_ai")
+skip_ai = st.checkbox("Quick scan (skip AI analysis — faster)", value=False, key="scan_skip_ai")
 
 st.markdown("")
 
-# ─── Run Button ──────────────────────────────────────────────────────
-
+# ── Run Button ──
 if st.button("Start Scan", use_container_width=True, key="scan_run_btn"):
     mm = {
         "All (LSE + US)": "all",
@@ -82,7 +88,7 @@ if st.button("Start Scan", use_container_width=True, key="scan_run_btn"):
 
             if proc.returncode == 0:
                 status.update(label="Scan complete!", state="complete")
-                st.success("Scan finished successfully. Navigate to **Overview** or **Top Picks** to see results.")
+                st.success("Scan finished successfully. Navigate to Overview or Top Picks to see results.")
                 st.cache_data.clear()
             else:
                 status.update(label="Scan failed", state="error")
@@ -90,8 +96,7 @@ if st.button("Start Scan", use_container_width=True, key="scan_run_btn"):
         except Exception as e:
             st.error(f"Error running scan: {str(e)}")
 
-# ─── Past Scans ──────────────────────────────────────────────────────
-
+# ── Past Scans ──
 st.markdown("---")
 st.markdown('<div class="section-title">Past Scans</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-sub">Previous scan results stored in the reports directory.</div>', unsafe_allow_html=True)
@@ -100,15 +105,13 @@ rd = os.path.join(PROJECT_ROOT, "reports")
 if os.path.exists(rd):
     jf = sorted(glob.glob(os.path.join(rd, "*_scan.json")), reverse=True)
     if jf:
-        for i, f in enumerate(jf[:15]):
+        for f in jf[:15]:
             fname = os.path.basename(f).replace("_scan.json", "")
             fsize = os.path.getsize(f)
             size_str = f"{fsize / 1024:.1f} KB" if fsize < 1024 * 1024 else f"{fsize / (1024*1024):.1f} MB"
 
             st.markdown(f"""<div class="card-sm" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-                <div>
-                    <div class="value-sm">{fname}</div>
-                </div>
+                <div><div class="value-sm">{fname}</div></div>
                 <div class="caption">{size_str}</div>
             </div>""", unsafe_allow_html=True)
     else:
@@ -116,8 +119,7 @@ if os.path.exists(rd):
 else:
     st.markdown('<div class="caption">Reports directory not found. Run your first scan to create it.</div>', unsafe_allow_html=True)
 
-# ─── Help Section ────────────────────────────────────────────────────
-
+# ── Help Section ──
 st.markdown("---")
 st.markdown('<div class="section-title" style="font-size:20px">Scan Options</div>', unsafe_allow_html=True)
 
