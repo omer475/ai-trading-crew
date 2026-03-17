@@ -1650,8 +1650,8 @@ Examples:
         """,
     )
     parser.add_argument(
-        "--market", type=str, choices=["lse", "us"],
-        default=None, help="Market to scan: 'lse' or 'us' (default: all)",
+        "--market", type=str, choices=["all", "lse", "us"],
+        default="all", help="Market to scan: 'all', 'lse', or 'us'",
     )
     parser.add_argument(
         "--skip-ai", action="store_true",
