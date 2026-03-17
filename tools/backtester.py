@@ -98,6 +98,7 @@ class Position:
     highest_high: float = 0.0  # track highest high since entry for chandelier exit
     bars_held: int = 0  # trading days held
     original_shares: int = 0  # shares before any drawdown scaling
+    took_partial_profit: bool = False  # True after selling half at 25% gain
 
 
 @dataclass
@@ -202,35 +203,57 @@ class SignalGenerator:
     """
     Professional multi-factor alpha signal generator.
 
-    Combines 15 weighted signals across 5 factor categories — the same approach
+    Combines 15+ weighted signals across 8 factor categories — the same approach
     used by Renaissance Technologies, Two Sigma, and AQR:
 
-    MOMENTUM (30% weight):
+    MOMENTUM (22% weight):
       - 12-month price momentum (skip last month to avoid reversal)
       - 6-month price momentum
       - 1-month mean reversion (contrarian on short-term extremes)
       - MACD trend confirmation
       - RSI momentum (40-60 = neutral, extremes = signals)
 
-    TREND (25% weight):
+    TREND (18% weight):
       - Price vs 200-day SMA (long-term regime)
       - 50/200 SMA alignment (golden/death cross)
       - Price vs 50-day SMA (medium-term trend)
-      - ADX-style trend strength (using directional movement)
+      - All MAs aligned check (20 > 50 > 100 > 200 = strongest trend)
 
-    MEAN REVERSION (20% weight):
+    MEAN REVERSION (18% weight):
       - Bollinger Band z-score (how far from mean)
       - RSI oversold/overbought with trend filter
       - 52-week range position (buy near lows in uptrends)
 
-    VOLUME & VOLATILITY (15% weight):
+    EARNINGS DRIFT / PEAD (12% weight):
+      - Post-Earnings Announcement Drift (Bernard & Thomas 1989)
+      - Detected via gap-up/gap-down >3% on 2x volume (earnings proxy)
+      - Drift signal persists for 60 trading days after event
+
+    RELATIVE STRENGTH (9% weight):
+      - 3-month return vs market baseline (multi-timeframe)
+      - 6-month return vs market baseline
+      - 12-month return vs market baseline
+
+    VOLUME & VOLATILITY (8% weight):
       - Volume surge on up days (accumulation)
-      - ATR contraction (volatility squeeze → breakout)
+      - ATR contraction (volatility squeeze -> breakout)
       - On-Balance Volume trend
 
-    REGIME FILTER (10% weight):
+    QUALITY (8% weight):
+      - Low volatility = quality (Novy-Marx style)
+      - Low kurtosis = consistent returns
+
+    REGIME FILTER (5% weight):
       - Market regime (bull/bear/neutral based on SMA and volatility)
       - Volatility regime (low vol = bigger positions, high vol = smaller)
+
+    VOLATILITY REGIME ADJUSTMENT:
+      - Low vol (<15% annualized): lower confidence threshold (more aggressive)
+      - High vol (>35% annualized): raise confidence threshold (more defensive)
+
+    EXIT ENHANCEMENTS:
+      - Partial profit-taking at 25% gain (sell half)
+      - Scale-out: tighten trailing stop to 2x ATR when position up >15%
 
     Position sizing adapts to signal strength (0-1 confidence).
     """
@@ -339,6 +362,20 @@ class SignalGenerator:
             lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False
         ).fillna(0.5)
 
+        # --- Earnings drift (PEAD) proxy indicators ---
+        # Detect gap-ups/gap-downs on high volume as proxy for earnings surprises
+        prev_close = c.shift(1)
+        df["overnight_gap"] = ((c.shift(0) - prev_close) / prev_close.replace(0, np.nan)).fillna(0)
+        # Use Open vs prev Close for true overnight gap when Open is available
+        if "Open" in df.columns:
+            df["overnight_gap"] = ((df["Open"] - prev_close) / prev_close.replace(0, np.nan)).fillna(0)
+        # Flag days with gap > 3% AND volume > 2x average as "earnings-like" events
+        df["earnings_gap_up"] = ((df["overnight_gap"] > 0.03) & (df["vol_ratio"] > 2.0)).astype(float)
+        df["earnings_gap_down"] = ((df["overnight_gap"] < -0.03) & (df["vol_ratio"] > 2.0)).astype(float)
+        # Rolling 60-day sum to detect if we're within the PEAD drift window
+        df["pead_bullish"] = df["earnings_gap_up"].rolling(60, min_periods=1).sum().fillna(0)
+        df["pead_bearish"] = df["earnings_gap_down"].rolling(60, min_periods=1).sum().fillna(0)
+
         # Return kurtosis (rolling 60-day, quality proxy)
         daily_rets = c.pct_change()
         df["ret_kurtosis"] = daily_rets.rolling(60, min_periods=20).kurt().fillna(3.0)
@@ -395,6 +432,33 @@ class SignalGenerator:
 
         return np.mean(scores)
 
+    def _score_earnings_drift(self, row) -> float:
+        """
+        Post-Earnings Announcement Drift (PEAD) factor. Score -1 to +1.
+
+        After an earnings surprise (proxied by gap-up/gap-down on high volume),
+        stocks continue drifting in that direction for ~60 trading days.
+        This is one of the most persistent anomalies in finance, documented by
+        Bernard & Thomas (1989) and still exploited by quant funds.
+        """
+        pead_bull = row.get("pead_bullish", 0.0)
+        pead_bear = row.get("pead_bearish", 0.0)
+
+        score = 0.0
+        # Recent earnings-like gap-up events within last 60 days
+        if pead_bull >= 2:
+            score += 1.0   # multiple positive surprises = very strong drift
+        elif pead_bull >= 1:
+            score += 0.7   # single positive surprise = strong drift
+
+        # Recent earnings-like gap-down events within last 60 days
+        if pead_bear >= 2:
+            score -= 1.0   # multiple negative surprises = strong negative drift
+        elif pead_bear >= 1:
+            score -= 0.7   # single negative surprise
+
+        return float(np.clip(score, -1.0, 1.0))
+
     def _score_trend(self, row) -> float:
         """Trend factor: 25% weight. Score -1 to +1."""
         scores = []
@@ -420,10 +484,19 @@ class SignalGenerator:
         else: scores.append(-0.6)
 
         # All MAs aligned (20 > 50 > 100 > 200 = perfect uptrend)
+        # When all 4 are perfectly aligned, this is the strongest possible trend
+        # signal. We add TWO entries to heavily weight this condition.
         if row["sma_20"] > row["sma_50"] > row["sma_100"] > row["sma_200"]:
             scores.append(1.0)
+            scores.append(1.0)  # double-weight perfect alignment
         elif row["sma_20"] < row["sma_50"] < row["sma_100"] < row["sma_200"]:
             scores.append(-1.0)
+            scores.append(-1.0)  # double-weight perfect downtrend
+        elif row["sma_50"] > row["sma_100"] > row["sma_200"]:
+            # 3 of 4 aligned (50 > 100 > 200) is still strong
+            scores.append(0.6)
+        elif row["sma_50"] < row["sma_100"] < row["sma_200"]:
+            scores.append(-0.6)
         else:
             scores.append(0.0)
 
@@ -519,28 +592,71 @@ class SignalGenerator:
         """
         Relative strength vs market (stock vs SPY proxy).
 
-        Uses the stock's 12-month return as a proxy; stocks with
-        strong absolute momentum are assumed to outperform the index.
+        Uses 3-month, 6-month, AND 12-month returns for a multi-timeframe
+        relative strength assessment. Stocks outperforming by >5% get a boost;
+        those underperforming by >5% get penalized.
+
+        We approximate relative strength using absolute momentum since SPY
+        data is not in the per-stock DataFrame. SPY averages ~10% annually
+        (~2.5% per quarter, ~5% per half-year), so we compare against those
+        baseline expectations.
+
         Score -1 to +1.
         """
-        ret_12m = row.get("ret_12m", 0.0)
-        # We approximate relative strength using absolute momentum
-        # since SPY data is not in the per-stock DataFrame.
-        # Stocks with > 15% annual return are likely outperforming SPY.
-        if ret_12m > 0.30:
-            return 1.0
-        elif ret_12m > 0.15:
-            return 0.6
-        elif ret_12m > 0.05:
-            return 0.3
-        elif ret_12m > -0.05:
-            return 0.0
-        elif ret_12m > -0.15:
-            return -0.3
-        elif ret_12m > -0.30:
-            return -0.6
+        scores = []
+
+        # --- 3-month relative strength (vs ~2.5% SPY baseline) ---
+        ret_3m = row.get("ret_3m", 0.0)
+        spy_3m_baseline = 0.025
+        excess_3m = ret_3m - spy_3m_baseline
+        if excess_3m > 0.15:
+            scores.append(1.0)
+        elif excess_3m > 0.05:
+            scores.append(0.6)
+        elif excess_3m > 0.0:
+            scores.append(0.2)
+        elif excess_3m > -0.05:
+            scores.append(0.0)
+        elif excess_3m > -0.15:
+            scores.append(-0.4)
         else:
-            return -1.0
+            scores.append(-0.8)
+
+        # --- 6-month relative strength (vs ~5% SPY baseline) ---
+        ret_6m = row.get("ret_6m", 0.0)
+        spy_6m_baseline = 0.05
+        excess_6m = ret_6m - spy_6m_baseline
+        if excess_6m > 0.20:
+            scores.append(1.0)
+        elif excess_6m > 0.05:
+            scores.append(0.6)
+        elif excess_6m > 0.0:
+            scores.append(0.2)
+        elif excess_6m > -0.05:
+            scores.append(0.0)
+        elif excess_6m > -0.20:
+            scores.append(-0.4)
+        else:
+            scores.append(-0.8)
+
+        # --- 12-month relative strength (original logic, vs ~10% SPY baseline) ---
+        ret_12m = row.get("ret_12m", 0.0)
+        if ret_12m > 0.30:
+            scores.append(1.0)
+        elif ret_12m > 0.15:
+            scores.append(0.6)
+        elif ret_12m > 0.05:
+            scores.append(0.3)
+        elif ret_12m > -0.05:
+            scores.append(0.0)
+        elif ret_12m > -0.15:
+            scores.append(-0.3)
+        elif ret_12m > -0.30:
+            scores.append(-0.6)
+        else:
+            scores.append(-1.0)
+
+        return float(np.mean(scores))
 
     def _score_quality(self, row, median_vol: float, median_kurt: float) -> float:
         """
@@ -599,13 +715,14 @@ class SignalGenerator:
 
         # Base weights for each factor category
         base_weights = {
-            "momentum": 0.25,
-            "trend": 0.20,
-            "mean_rev": 0.20,
-            "volume": 0.10,
+            "momentum": 0.22,
+            "trend": 0.18,
+            "mean_rev": 0.18,
+            "volume": 0.08,
             "regime": 0.05,
-            "rel_strength": 0.10,
-            "quality": 0.10,
+            "rel_strength": 0.09,
+            "quality": 0.08,
+            "earnings_drift": 0.12,
         }
 
         # --- Dynamic factor weighting (AQR factor momentum) ---
@@ -640,6 +757,20 @@ class SignalGenerator:
             regime_score = self._score_regime(row)
             rel_str = self._score_relative_strength(row)
             quality = self._score_quality(row, median_vol, median_kurt)
+            earnings_drift = self._score_earnings_drift(row)
+
+            # --- Volatility regime adjustment for confidence threshold ---
+            # In low vol regimes: be more aggressive (lower threshold)
+            # In high vol regimes: be more defensive (higher threshold)
+            realized_vol_ann = row.get("realized_vol", 0.20)
+            if realized_vol_ann < 0.15:
+                # Low volatility regime: lower confidence threshold to catch more signals
+                effective_min_confidence = self.min_confidence * 0.80
+            elif realized_vol_ann > 0.35:
+                # High volatility regime: raise threshold to be more selective
+                effective_min_confidence = self.min_confidence * 1.35
+            else:
+                effective_min_confidence = self.min_confidence
 
             # --- Track factor returns for dynamic weighting ---
             # Each factor's "return" = factor_score * next_day_return
@@ -674,7 +805,7 @@ class SignalGenerator:
 
             # --- Regime-adaptive composite ---
             if regime == "BULL":
-                # In bull: emphasize momentum signals, reduce mean reversion
+                # In bull: emphasize momentum and earnings drift, reduce mean reversion
                 composite = (
                     mom * weights["momentum"] * 1.3
                     + trend * weights["trend"] * 1.2
@@ -683,9 +814,10 @@ class SignalGenerator:
                     + regime_score * weights["regime"]
                     + rel_str * weights["rel_strength"] * 1.2
                     + quality * weights["quality"]
+                    + earnings_drift * weights["earnings_drift"] * 1.3
                 )
             elif regime == "BEAR":
-                # In bear: emphasize mean reversion, reduce momentum
+                # In bear: emphasize mean reversion, reduce momentum; earnings drift still useful
                 composite = (
                     mom * weights["momentum"] * 0.5
                     + trend * weights["trend"] * 0.8
@@ -694,6 +826,7 @@ class SignalGenerator:
                     + regime_score * weights["regime"]
                     + rel_str * weights["rel_strength"] * 0.8
                     + quality * weights["quality"] * 1.3
+                    + earnings_drift * weights["earnings_drift"] * 0.8
                 )
             else:
                 # NEUTRAL: blended
@@ -705,6 +838,7 @@ class SignalGenerator:
                     + regime_score * weights["regime"]
                     + rel_str * weights["rel_strength"]
                     + quality * weights["quality"]
+                    + earnings_drift * weights["earnings_drift"]
                 )
 
             # Apply regime penalty (reduce confidence in bad regimes)
@@ -712,13 +846,14 @@ class SignalGenerator:
                 composite *= 0.6
 
             # --- Standard composite signal (long-term, high-conviction only) ---
-            if composite >= self.min_confidence:
+            # Use volatility-regime-adjusted confidence threshold
+            if composite >= effective_min_confidence:
                 signals.iloc[i] = "BUY"
                 if regime == "BEAR":
                     signal_types.iloc[i] = "mean_reversion"
                 else:
                     signal_types.iloc[i] = "momentum"
-            elif composite <= -self.min_confidence:
+            elif composite <= -effective_min_confidence:
                 signals.iloc[i] = "SELL"
                 signal_types.iloc[i] = "momentum"
 
@@ -1029,6 +1164,44 @@ class PortfolioSimulator:
             if new_stop > pos.trailing_stop:
                 pos.trailing_stop = new_stop
                 pos.stop_loss = new_stop
+
+            # --- Scale-out: tighten trailing stop when position is up >15% ---
+            current_gain_pct = (price - pos.entry_price) / pos.entry_price if pos.entry_price > 0 else 0.0
+            if current_gain_pct > 0.15:
+                # Tighten trailing stop to 2x ATR instead of 4x ATR
+                tight_stop = pos.highest_high - 2.0 * today_atr_22
+                if tight_stop > pos.trailing_stop:
+                    pos.trailing_stop = tight_stop
+                    pos.stop_loss = tight_stop
+
+            # --- Partial profit-taking at 25% gain (sell half the position) ---
+            if current_gain_pct >= 0.25 and not pos.took_partial_profit and pos.shares > 1:
+                shares_to_sell = pos.shares // 2
+                if shares_to_sell > 0:
+                    proceeds = shares_to_sell * price
+                    self.cash += proceeds
+                    # Pay transaction cost on the partial sale
+                    self._pay_transaction_cost(proceeds)
+                    self._pay_commission(shares_to_sell)
+                    # Record partial profit trade
+                    pnl = (price - pos.entry_price) * shares_to_sell
+                    pnl_pct = ((price / pos.entry_price) - 1) * 100 if pos.entry_price > 0 else 0.0
+                    partial_trade = Trade(
+                        symbol=symbol,
+                        side="SELL",
+                        entry_date=pos.entry_date,
+                        entry_price=pos.entry_price,
+                        exit_date=date,
+                        exit_price=price,
+                        shares=shares_to_sell,
+                        pnl=pnl,
+                        pnl_pct=pnl_pct,
+                        exit_reason="partial_profit_25pct",
+                    )
+                    self.trades.append(partial_trade)
+                    closed.append(partial_trade)
+                    pos.shares -= shares_to_sell
+                    pos.took_partial_profit = True
 
             # --- Minimum hold period (don't exit early) ---
             if pos.bars_held < self.MIN_HOLD_BARS:

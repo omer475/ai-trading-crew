@@ -34,6 +34,7 @@ logger = logging.getLogger("pipeline")
 # ---------------------------------------------------------------------------
 from tools.regime_detector import detect_regime, RegimeResult, MarketRegime
 from tools.scanner import scan, _fetch_histories, _fetch_infos, _analyze_stock, _score_opportunity
+from tools.news_scanner import get_stock_news, get_sentiment_score, get_upcoming_events, scan_insider_activity, get_market_news
 from agents.personas.definitions import PERSONAS
 from agents.head_coach import HEAD_COACH_PROMPT
 from config.llm_config import get_decision_client, get_analysis_client, get_manager_client
@@ -326,6 +327,82 @@ def _long_term_score(signals: dict, regime: MarketRegime) -> float:
     if signals.get("rsi_bearish_divergence"):
         score -= 3
 
+    # --- Earnings Momentum (max +6) ---
+    # If forward P/E is lower than trailing P/E, the market expects earnings growth
+    if pe is not None and fwd_pe is not None and pe > 0 and fwd_pe > 0:
+        if fwd_pe < pe * 0.80:
+            score += 6  # strong earnings acceleration expected (20%+ growth)
+        elif fwd_pe < pe * 0.90:
+            score += 4  # moderate earnings acceleration
+        elif fwd_pe < pe:
+            score += 2  # mild improvement
+
+    # --- Free Cash Flow Yield (max +8) ---
+    fcf = signals.get("free_cash_flow")
+    mcap = signals.get("market_cap")
+    if fcf is not None and mcap is not None and mcap > 0:
+        fcf_yield = fcf / mcap
+        if fcf_yield > 0.08:
+            score += 8   # >8% FCF yield = extremely cheap
+        elif fcf_yield > 0.05:
+            score += 5   # >5% FCF yield = very attractive
+        elif fcf_yield > 0.03:
+            score += 3   # >3% FCF yield = solid
+        elif fcf_yield < 0:
+            score -= 3   # negative FCF = cash burn
+
+    # --- Debt Quality (max +6) ---
+    debt_to_equity = signals.get("debt_to_equity")
+    if debt_to_equity is not None:
+        if 0 <= debt_to_equity < 30:
+            score += 6   # very low debt = strong balance sheet
+        elif debt_to_equity < 50:
+            score += 4   # conservative leverage
+        elif debt_to_equity < 100:
+            score += 1   # moderate leverage
+        elif debt_to_equity > 200:
+            score -= 4   # heavily leveraged = risky
+
+    # --- Insider Buying Signal (max +5) ---
+    insider_net = signals.get("insider_net_sentiment")
+    if insider_net is not None:
+        if insider_net > 0.3:
+            score += 5   # clear net insider buying = strong bullish
+        elif insider_net > 0:
+            score += 3   # mild net buying
+        elif insider_net < -0.3:
+            score -= 2   # heavy insider selling
+
+    # --- Sector Strength (max +5) ---
+    sector_performance = signals.get("sector_performance")
+    if sector_performance is not None:
+        if sector_performance > 0.05:
+            score += 5   # sector outperforming by 5%+
+        elif sector_performance > 0.02:
+            score += 3   # mild sector strength
+        elif sector_performance < -0.05:
+            score -= 3   # sector underperforming significantly
+
+    # --- 52-Week Range Position (max +6) ---
+    # Stocks near 52w lows that are still in uptrends = oversold opportunities
+    price_val = signals.get("price", 0)
+    high_52w = signals.get("fifty_two_week_high")
+    low_52w = signals.get("fifty_two_week_low")
+    if high_52w and low_52w and price_val > 0 and high_52w > low_52w:
+        range_position = (price_val - low_52w) / (high_52w - low_52w)
+        if range_position < 0.30 and signals.get("above_sma_200"):
+            # Near 52w low but still above 200 SMA = oversold opportunity
+            score += 6
+        elif range_position < 0.30 and signals.get("above_sma_50"):
+            # Near 52w low, above 50 SMA = potential bounce
+            score += 4
+        elif range_position < 0.40:
+            # Lower third of range, some value potential
+            score += 2
+        elif range_position > 0.95:
+            # At 52w highs, less upside potential for new entries
+            score -= 2
+
     # --- Regime adjustments ---
     if regime in (MarketRegime.BEAR, MarketRegime.STRONG_BEAR):
         # In bear markets, heavily weight value and penalize growth
@@ -335,6 +412,11 @@ def _long_term_score(signals: dict, regime: MarketRegime) -> float:
             score -= 8
         if not signals.get("above_sma_200"):
             score -= 5
+        # In bear markets, extra reward for strong balance sheets
+        if debt_to_equity is not None and debt_to_equity < 50:
+            score += 3
+        if fcf is not None and fcf > 0:
+            score += 2
     elif regime == MarketRegime.STRONG_BULL:
         # In strong bull, give momentum a boost
         if signals.get("above_sma_50") and signals.get("above_sma_200"):
@@ -371,6 +453,51 @@ def stage_2_scan(universe: list[str],
         if signals is None:
             skipped += 1
             continue
+
+        # Enrich signals with additional fundamentals from info dict
+        # for the enhanced _long_term_score() scoring
+        if info.get("freeCashflow") is not None:
+            signals["free_cash_flow"] = info["freeCashflow"]
+        if info.get("debtToEquity") is not None:
+            signals["debt_to_equity"] = info["debtToEquity"]
+        if info.get("fiftyTwoWeekHigh") is not None:
+            signals["fifty_two_week_high"] = info["fiftyTwoWeekHigh"]
+        if info.get("fiftyTwoWeekLow") is not None:
+            signals["fifty_two_week_low"] = info["fiftyTwoWeekLow"]
+        if info.get("sector"):
+            signals["sector"] = info["sector"]
+        if info.get("dividendYield") is not None:
+            signals["dividend_yield"] = info["dividendYield"]
+        if info.get("returnOnEquity") is not None:
+            signals["return_on_equity"] = info["returnOnEquity"]
+
+        # Sector performance: compute from sector ETF data if available
+        _sector_etf_map = {
+            "Technology": "XLK", "Consumer Cyclical": "XLY",
+            "Industrials": "XLI", "Financial Services": "XLF",
+            "Healthcare": "XLV", "Utilities": "XLU",
+            "Consumer Defensive": "XLP", "Energy": "XLE",
+            "Communication Services": "XLC", "Real Estate": "XLRE",
+            "Basic Materials": "XLB",
+        }
+        sector = info.get("sector", "")
+        sector_etf = _sector_etf_map.get(sector)
+        if sector_etf and sector_etf in histories:
+            try:
+                sector_hist = histories[sector_etf]
+                if sector_hist is not None and len(sector_hist) >= 20:
+                    sector_close = sector_hist["Close"]
+                    sector_perf = float(sector_close.iloc[-1] / sector_close.iloc[-20] - 1)
+                    # Compare to SPY performance
+                    spy_hist = histories.get("SPY")
+                    if spy_hist is not None and len(spy_hist) >= 20:
+                        spy_close = spy_hist["Close"]
+                        spy_perf = float(spy_close.iloc[-1] / spy_close.iloc[-20] - 1)
+                        signals["sector_performance"] = sector_perf - spy_perf
+                    else:
+                        signals["sector_performance"] = sector_perf
+            except Exception:
+                pass
 
         # Use our custom long-term scoring
         signals["score"] = _long_term_score(signals, regime.regime)
@@ -412,22 +539,51 @@ def _make_safe_name(name: str) -> str:
     return safe
 
 
-def _build_stock_brief(candidate: dict) -> str:
-    """Build a concise data brief about a stock for the AI agents."""
+def _build_stock_brief(candidate: dict,
+                       market_context: str = "",
+                       news_data: dict = None) -> str:
+    """Build a concise data brief about a stock for the AI agents.
+
+    Parameters
+    ----------
+    candidate : dict
+        Scanner signals for the stock.
+    market_context : str
+        Market-wide context string (regime, VIX, macro headlines).
+    news_data : dict or None
+        Pre-fetched news/sentiment/events/insider data for this stock.
+    """
     sym = candidate["symbol"]
     name = candidate.get("company_name", sym)
     price = candidate["price"]
+    news_data = news_data or {}
 
     lines = [
         f"STOCK: {name} ({sym})",
         f"Current Price: ${price:.2f}",
     ]
 
-    # Fundamentals
+    # --- Market Context (if provided) ---
+    if market_context:
+        lines.append("")
+        lines.append(market_context)
+        lines.append("")
+
+    # --- Fundamentals ---
+    lines.append("--- FUNDAMENTALS ---")
     if candidate.get("pe_ratio"):
         lines.append(f"P/E Ratio: {candidate['pe_ratio']:.1f}")
     if candidate.get("forward_pe"):
         lines.append(f"Forward P/E: {candidate['forward_pe']:.1f}")
+    # Earnings momentum indicator
+    pe = candidate.get("pe_ratio")
+    fwd_pe = candidate.get("forward_pe")
+    if pe and fwd_pe and pe > 0 and fwd_pe > 0:
+        if fwd_pe < pe:
+            pct_diff = ((pe - fwd_pe) / pe) * 100
+            lines.append(f"  -> Earnings Momentum: Forward P/E {pct_diff:.0f}% below trailing (earnings growth expected)")
+        else:
+            lines.append(f"  -> Earnings Momentum: Forward P/E higher than trailing (earnings deceleration)")
     if candidate.get("price_to_book"):
         lines.append(f"P/B Ratio: {candidate['price_to_book']:.2f}")
     if candidate.get("revenue_growth") is not None:
@@ -442,8 +598,36 @@ def _build_stock_brief(candidate: dict) -> str:
             lines.append(f"Market Cap: ${mc/1e9:.1f}B")
         else:
             lines.append(f"Market Cap: ${mc/1e6:.0f}M")
+    # New fundamental metrics
+    if candidate.get("free_cash_flow") is not None and candidate.get("market_cap"):
+        fcf = candidate["free_cash_flow"]
+        mcap = candidate["market_cap"]
+        if mcap > 0:
+            fcf_yield = (fcf / mcap) * 100
+            lines.append(f"Free Cash Flow Yield: {fcf_yield:.1f}%")
+    if candidate.get("debt_to_equity") is not None:
+        lines.append(f"Debt/Equity: {candidate['debt_to_equity']:.1f}%")
+    if candidate.get("return_on_equity") is not None:
+        lines.append(f"Return on Equity: {candidate['return_on_equity']:.1%}")
+    if candidate.get("dividend_yield") is not None:
+        lines.append(f"Dividend Yield: {candidate['dividend_yield']:.2%}")
+    if candidate.get("sector"):
+        lines.append(f"Sector: {candidate['sector']}")
+    if candidate.get("sector_performance") is not None:
+        sp = candidate["sector_performance"]
+        label = "outperforming" if sp > 0 else "underperforming"
+        lines.append(f"Sector vs Market (20d): {sp:+.1%} ({label})")
 
-    # Technicals
+    # 52-week range
+    high_52w = candidate.get("fifty_two_week_high")
+    low_52w = candidate.get("fifty_two_week_low")
+    if high_52w and low_52w:
+        range_pos = ((price - low_52w) / (high_52w - low_52w) * 100) if high_52w > low_52w else 0
+        lines.append(f"52-Week Range: ${low_52w:.2f} - ${high_52w:.2f} (currently at {range_pos:.0f}% of range)")
+
+    # --- Technicals ---
+    lines.append("")
+    lines.append("--- TECHNICALS ---")
     lines.append(f"RSI(14): {candidate.get('rsi', 'N/A')}")
     if candidate.get("sma_50"):
         lines.append(f"50-SMA: ${candidate['sma_50']:.2f} "
@@ -476,7 +660,163 @@ def _build_stock_brief(candidate: dict) -> str:
     if flags:
         lines.append(f"Signals: {', '.join(flags)}")
 
+    # --- NEWS & SENTIMENT (fetched from news_scanner) ---
+    stock_news = news_data.get("news", [])
+    sentiment = news_data.get("sentiment", {})
+    events = news_data.get("events", {})
+    insider = news_data.get("insider", {})
+
+    if sentiment:
+        lines.append("")
+        lines.append("--- NEWS SENTIMENT ---")
+        sent_score = sentiment.get("score", 0)
+        n_articles = sentiment.get("num_articles", 0)
+        bullish_n = sentiment.get("bullish_count", 0)
+        bearish_n = sentiment.get("bearish_count", 0)
+        if sent_score > 0.2:
+            sentiment_label = "BULLISH"
+        elif sent_score < -0.2:
+            sentiment_label = "BEARISH"
+        else:
+            sentiment_label = "NEUTRAL"
+        lines.append(f"Overall Sentiment: {sent_score:+.3f} ({sentiment_label}) based on {n_articles} articles")
+        lines.append(f"  Bullish articles: {bullish_n} | Bearish articles: {bearish_n}")
+        if sentiment.get("urgent_count", 0) > 0:
+            lines.append(f"  URGENT/HIGH-IMPACT articles: {sentiment['urgent_count']}")
+
+    if stock_news:
+        lines.append("")
+        lines.append("--- RECENT HEADLINES ---")
+        for item in stock_news[:8]:  # top 8 headlines
+            score_str = f"{item.get('sentiment_score', 0):+.2f}"
+            cat = item.get("category", "")
+            urgent = " [URGENT]" if item.get("is_urgent") else ""
+            lines.append(f"  [{score_str}] [{cat}]{urgent} {item.get('title', '')[:120]}")
+
+    if events:
+        lines.append("")
+        lines.append("--- UPCOMING EVENTS ---")
+        earn_dates = events.get("earnings_dates", [])
+        if earn_dates:
+            lines.append(f"  Next Earnings: {', '.join(str(d) for d in earn_dates[:2])}")
+        if events.get("ex_dividend_date"):
+            lines.append(f"  Ex-Dividend Date: {events['ex_dividend_date']}")
+        if events.get("dividend_date"):
+            lines.append(f"  Dividend Date: {events['dividend_date']}")
+
+    if insider:
+        lines.append("")
+        lines.append("--- INSIDER ACTIVITY ---")
+        lines.append(f"  {insider.get('summary', 'No recent insider activity data')}")
+        net_sent = insider.get("net_sentiment", 0)
+        if net_sent != 0:
+            lines.append(f"  Insider Net Sentiment: {net_sent:+.3f}")
+        txn_count = len(insider.get("transactions", []))
+        if txn_count > 0:
+            lines.append(f"  Recent transactions: {txn_count}")
+            for txn in insider.get("transactions", [])[:5]:
+                who = txn.get("insider") or "Unknown"
+                what = txn.get("transaction") or ""
+                when = txn.get("date") or ""
+                lines.append(f"    - {who}: {what} ({when})")
+
     return "\n".join(lines)
+
+
+def _fetch_stock_news_data(symbol: str) -> dict:
+    """Fetch news, sentiment, events, and insider activity for a stock.
+
+    Returns a dict with keys: news, sentiment, events, insider.
+    Wrapped in try/except so failures never break the pipeline.
+    """
+    result = {"news": [], "sentiment": {}, "events": {}, "insider": {}}
+
+    try:
+        news = get_stock_news(symbol, days=7)
+        result["news"] = news
+    except Exception as exc:
+        logger.warning("News fetch failed for %s: %s", symbol, exc)
+
+    try:
+        sentiment = get_sentiment_score(symbol, days=7)
+        result["sentiment"] = sentiment
+    except Exception as exc:
+        logger.warning("Sentiment fetch failed for %s: %s", symbol, exc)
+
+    try:
+        events = get_upcoming_events(symbol)
+        result["events"] = events
+    except Exception as exc:
+        logger.warning("Events fetch failed for %s: %s", symbol, exc)
+
+    try:
+        insider = scan_insider_activity(symbol, days=90)
+        result["insider"] = insider
+    except Exception as exc:
+        logger.warning("Insider activity fetch failed for %s: %s", symbol, exc)
+
+    return result
+
+
+def _fetch_market_context(regime: RegimeResult) -> str:
+    """Build a market-wide context string from regime data and market news.
+
+    Returns a formatted string summarising the macro environment.
+    Wrapped in try/except so failures never break the pipeline.
+    """
+    # Start with regime info
+    vix_val = "N/A"
+    for sig in regime.signals:
+        if sig.name == "vix":
+            vix_val = f"{sig.value:.1f}"
+            break
+
+    # Determine fear/greed label from regime
+    if regime.composite_score > 0.3:
+        market_sentiment = "Greed"
+    elif regime.composite_score > 0.1:
+        market_sentiment = "Mild Greed"
+    elif regime.composite_score > -0.1:
+        market_sentiment = "Neutral"
+    elif regime.composite_score > -0.3:
+        market_sentiment = "Mild Fear"
+    else:
+        market_sentiment = "Fear"
+
+    context_lines = [
+        f"CURRENT MARKET CONTEXT: {regime.regime.value} regime. "
+        f"VIX at {vix_val}. Market sentiment: {market_sentiment}.",
+        f"Strategy guidance: {regime.strategy['description']}",
+    ]
+
+    # Fetch market-wide news headlines
+    try:
+        mkt_data = get_market_news(days=3)
+        mkt_news = mkt_data.get("news", [])
+        mkt_sentiment = mkt_data.get("sentiment", {})
+
+        if mkt_sentiment:
+            mkt_score = mkt_sentiment.get("score", 0)
+            n_articles = mkt_sentiment.get("num_articles", 0)
+            context_lines.append(
+                f"Market news sentiment: {mkt_score:+.3f} across {n_articles} articles."
+            )
+
+        if mkt_news:
+            context_lines.append("")
+            context_lines.append("KEY MARKET HEADLINES (world situation):")
+            for item in mkt_news[:10]:  # top 10 market headlines
+                score_str = f"{item.get('sentiment_score', 0):+.2f}"
+                cat = item.get("category", "")
+                urgent = " [URGENT]" if item.get("is_urgent") else ""
+                context_lines.append(
+                    f"  [{score_str}] [{cat}]{urgent} {item.get('title', '')[:120]}"
+                )
+    except Exception as exc:
+        logger.warning("Market news fetch failed: %s", exc)
+        context_lines.append("(Market news unavailable)")
+
+    return "\n".join(context_lines)
 
 
 def _parse_agent_response(text: str, agent_id: str, agent_name: str) -> AgentVerdict:
@@ -522,8 +862,22 @@ def _parse_agent_response(text: str, agent_id: str, agent_name: str) -> AgentVer
 
 
 async def _analyze_single_stock(candidate: dict,
-                                 regime: RegimeResult) -> list[AgentVerdict]:
-    """Run the 5 key agents on a single stock using a SelectorGroupChat."""
+                                 regime: RegimeResult,
+                                 market_context: str = "",
+                                 news_data: dict = None) -> list[AgentVerdict]:
+    """Run the 5 key agents on a single stock using a SelectorGroupChat.
+
+    Parameters
+    ----------
+    candidate : dict
+        Scanner signals for the stock.
+    regime : RegimeResult
+        Current market regime.
+    market_context : str
+        Market-wide context (macro headlines, regime summary).
+    news_data : dict or None
+        Pre-fetched news/sentiment/events/insider data for this stock.
+    """
     from autogen_agentchat.agents import AssistantAgent
     from autogen_agentchat.teams import SelectorGroupChat
     from autogen_agentchat.conditions import MaxMessageTermination
@@ -532,7 +886,7 @@ async def _analyze_single_stock(candidate: dict,
     analysis_client = get_analysis_client()
     manager_client = get_manager_client()
 
-    brief = _build_stock_brief(candidate)
+    brief = _build_stock_brief(candidate, market_context=market_context, news_data=news_data)
     regime_context = (
         f"Current market regime: {regime.regime.value} "
         f"(score {regime.composite_score:+.3f}, confidence {regime.confidence:.0%}). "
@@ -584,6 +938,33 @@ async def _analyze_single_stock(candidate: dict,
         termination_condition=termination,
     )
 
+    # Build earnings/event context for the prompt
+    events_context = ""
+    if news_data and news_data.get("events"):
+        ev = news_data["events"]
+        earn_dates = ev.get("earnings_dates", [])
+        if earn_dates:
+            events_context += f"\n   UPCOMING EARNINGS: {', '.join(str(d) for d in earn_dates[:2])}"
+        if ev.get("ex_dividend_date"):
+            events_context += f"\n   EX-DIVIDEND DATE: {ev['ex_dividend_date']}"
+
+    # Build insider context for the prompt
+    insider_context = ""
+    if news_data and news_data.get("insider"):
+        ins = news_data["insider"]
+        insider_context = f"\n   INSIDER ACTIVITY: {ins.get('summary', 'N/A')}"
+
+    # Build news sentiment context for the prompt
+    news_sentiment_context = ""
+    if news_data and news_data.get("sentiment"):
+        sent = news_data["sentiment"]
+        n_art = sent.get("num_articles", 0)
+        if n_art > 0:
+            news_sentiment_context = (
+                f"\n   NEWS SENTIMENT: Score {sent.get('score', 0):+.3f} across {n_art} articles "
+                f"({sent.get('bullish_count', 0)} bullish, {sent.get('bearish_count', 0)} bearish)"
+            )
+
     task = (
         f"PROFESSIONAL INVESTMENT ANALYSIS — LONG-TERM HOLD (3-12 months)\n\n"
         f"{regime_context}\n\n"
@@ -596,19 +977,25 @@ async def _analyze_single_stock(candidate: dict,
         f"   - Technical analysts: analyze weekly/monthly trend, key support/resistance levels, "
         f"momentum indicators, volume patterns, and optimal entry zones\n"
         f"   - Fundamental analysts: analyze valuation metrics vs peers, earnings quality, "
-        f"competitive moat, revenue sustainability, and intrinsic value estimate\n"
-        f"   - Macro analysts: analyze how Fed policy, interest rates, sector rotation, "
-        f"and geopolitical factors affect this specific stock\n"
-        f"   - Sentiment analysts: analyze news flow, insider activity, institutional positioning, "
-        f"and market sentiment around this name\n"
+        f"competitive moat, revenue sustainability, FCF yield, debt quality, and intrinsic value estimate\n"
+        f"   - Macro analysts: analyze how Fed policy, interest rates, sector rotation, tariffs, "
+        f"geopolitical factors, and the current world situation affect this specific stock. "
+        f"CONSIDER THE MACRO ENVIRONMENT carefully — refer to the market context and headlines above.\n"
+        f"   - Sentiment analysts: analyze the provided news headlines, sentiment scores, insider activity, "
+        f"institutional positioning, and market sentiment around this name. "
+        f"Use the ACTUAL NEWS DATA provided in the brief.{news_sentiment_context}{insider_context}{events_context}\n"
         f"   - Quant analysts: analyze factor exposures, volatility regime, statistical edge, "
-        f"and risk-adjusted expected return\n"
+        f"52-week range position, and risk-adjusted expected return\n"
         f"   - Risk analysts: analyze downside scenarios, max drawdown risk, position sizing, "
-        f"and what could go wrong. Devil's advocate must challenge the bull case.\n"
-        f"   - Execution: recommend entry strategy (DCA vs lump sum), timing, and order types\n"
-        f"   - Strategy: identify the primary catalyst and investment thesis\n\n"
-        f"4. KEY RISKS specific to this stock (not generic)\n"
-        f"5. PRICE TARGET with your methodology\n\n"
+        f"balance sheet risk (debt/equity), and what could go wrong. "
+        f"Devil's advocate must challenge the bull case with specific data.\n"
+        f"   - Execution: recommend entry strategy (DCA vs lump sum), timing, and order types. "
+        f"Consider upcoming earnings/events when timing entries.\n"
+        f"   - Strategy: identify the primary catalyst and investment thesis. "
+        f"Consider news catalysts, earnings momentum, and sector dynamics.\n\n"
+        f"4. KEY RISKS specific to this stock (not generic) — reference actual news or data\n"
+        f"5. PRICE TARGET with your methodology\n"
+        f"6. How does the current MACRO ENVIRONMENT (regime, VIX, market headlines) affect your view?\n\n"
         f"Be specific. Use numbers. Reference actual data from the brief above. "
         f"This analysis will be shown to investors — make it institutional quality.\n\n"
         f"Head Coach: After hearing all analysts, provide your FINAL DECISION with:\n"
@@ -616,7 +1003,8 @@ async def _analyze_single_stock(candidate: dict,
         f"- Entry price range and stop loss\n"
         f"- 6-month and 12-month price targets\n"
         f"- Position size recommendation (% of portfolio)\n"
-        f"- Key conditions that would change your view"
+        f"- Key conditions that would change your view\n"
+        f"- How the macro environment affects the timing and sizing of this position"
     )
 
     # Collect responses
@@ -667,16 +1055,51 @@ async def stage_3_ai_analysis(candidates: list[dict],
     print(f"               Quant, Risk, Execution, Strategy")
     print("=" * 70 + "\n")
 
+    # Fetch market-wide context once (shared across all stocks)
+    print("  Fetching market-wide news and context...", end="", flush=True)
+    try:
+        market_context = _fetch_market_context(regime)
+        print(" done.")
+    except Exception as exc:
+        logger.warning("Market context fetch failed: %s", exc)
+        market_context = (
+            f"CURRENT MARKET CONTEXT: {regime.regime.value} regime. "
+            f"Strategy guidance: {regime.strategy['description']}"
+        )
+        print(" failed (using regime data only).")
+
     analysis_results: dict[str, list[AgentVerdict]] = {}
     batch = candidates[:max_candidates]
 
     for i, candidate in enumerate(batch, 1):
         sym = candidate["symbol"]
         name = candidate.get("company_name", sym)
-        print(f"  [{i}/{len(batch)}] Analyzing {sym} ({name})...", end="", flush=True)
+        print(f"  [{i}/{len(batch)}] Analyzing {sym} ({name})...")
 
+        # Fetch per-stock news data (only in AI phase, not scanner phase)
+        print(f"    Fetching news & sentiment for {sym}...", end="", flush=True)
         try:
-            verdicts = await _analyze_single_stock(candidate, regime)
+            news_data = _fetch_stock_news_data(sym)
+            n_articles = news_data.get("sentiment", {}).get("num_articles", 0)
+            n_insider = len(news_data.get("insider", {}).get("transactions", []))
+            print(f" {n_articles} articles, {n_insider} insider txns")
+
+            # Pass insider sentiment back to candidate for scoring reference
+            insider_net = news_data.get("insider", {}).get("net_sentiment")
+            if insider_net is not None:
+                candidate["insider_net_sentiment"] = insider_net
+        except Exception as exc:
+            logger.warning("News data fetch failed for %s: %s", sym, exc)
+            news_data = None
+            print(" failed (proceeding without news)")
+
+        print(f"    Running AI agents...", end="", flush=True)
+        try:
+            verdicts = await _analyze_single_stock(
+                candidate, regime,
+                market_context=market_context,
+                news_data=news_data,
+            )
             analysis_results[sym] = verdicts
 
             # Quick summary
