@@ -10,5 +10,11 @@
     "regime": "NEUTRAL",
     "composite_score": -0.0408,
     "confidence": 0.705
+  },
+  {
+    "timestamp": "2026-03-17T15:55:40.904477",
+    "regime": "NEUTRAL",
+    "composite_score": -0.0318,
+    "confidence": 0.684
   }
 ]

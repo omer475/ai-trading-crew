@@ -76,7 +76,7 @@ if st.button("Start Scan", use_container_width=True, key="scan_run_btn"):
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # merge stderr into stdout to prevent pipe deadlock
                 text=True,
                 bufsize=1,
                 cwd=PROJECT_ROOT,
@@ -86,24 +86,23 @@ if st.button("Start Scan", use_container_width=True, key="scan_run_btn"):
             out_area = st.empty()
             lines = []
             for line in iter(proc.stdout.readline, ""):
-                lines.append(line.rstrip())
+                line_stripped = line.rstrip()
+                # Skip noisy yfinance error lines to keep output clean
+                if "[yfinance] ERROR" in line_stripped and "delisted" in line_stripped:
+                    continue
+                lines.append(line_stripped)
                 out_area.code("\n".join(lines[-25:]))
 
             proc.wait()
 
-            stderr_output = proc.stderr.read() if proc.stderr else ""
-
             if proc.returncode == 0:
                 status.update(label="Scan complete!", state="complete")
-                st.success("Scan finished successfully. Navigate to Overview or Top Picks to see results.")
+                st.success("Scan finished! Refresh the page or navigate to Overview / Top Picks.")
                 st.cache_data.clear()
             else:
                 status.update(label="Scan failed", state="error")
                 st.error(f"Scan failed with exit code {proc.returncode}")
-                if stderr_output:
-                    st.code(stderr_output[-2000:], language=None)
-                if lines:
-                    st.code("\n".join(lines[-10:]), language=None)
+                st.code("\n".join(lines[-20:]), language=None)
         except Exception as e:
             st.error(f"Error running scan: {str(e)}")
 
