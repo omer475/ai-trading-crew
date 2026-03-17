@@ -164,9 +164,57 @@ def inject_css():
     st.markdown(APPLE_CSS, unsafe_allow_html=True)
 
 
+def _get_scan_status():
+    """Read the background scan status file."""
+    status_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports", ".scan_status.json")
+    if not os.path.exists(status_file):
+        return None
+    try:
+        with open(status_file) as f:
+            return json.load(f)
+    except:
+        return None
+
+
 def page_header():
-    """Render the shared navigation header bar."""
-    st.markdown("""<div style="display:flex;align-items:center;justify-content:space-between;padding:20px 0;border-bottom:1px solid #e8e8ed;margin-bottom:32px">
+    """Render the shared navigation header bar + scan status indicator."""
+    # Check if a scan is running
+    scan = _get_scan_status()
+    scan_bar = ""
+
+    if scan and scan.get("status") == "running":
+        pct = scan.get("progress", 0)
+        msg = scan.get("message", "Scanning...")
+        stage = scan.get("stage", "")
+        scan_bar = f"""<div style="background:#1d1d1f;color:white;border-radius:10px;padding:10px 16px;margin-bottom:12px;
+            display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <div style="display:flex;align-items:center;gap:10px">
+                <div style="width:8px;height:8px;border-radius:50%;background:#34c759;animation:pulse 1.5s infinite"></div>
+                <span style="font-size:13px;font-weight:600">System Running</span>
+                <span style="font-size:12px;color:rgba(255,255,255,0.6)">{stage}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;flex:1;max-width:400px">
+                <div style="flex:1;background:rgba(255,255,255,0.15);border-radius:4px;height:4px;overflow:hidden">
+                    <div style="width:{pct}%;height:4px;background:#34c759;border-radius:4px;transition:width 0.5s"></div>
+                </div>
+                <span style="font-size:12px;color:rgba(255,255,255,0.6);min-width:35px">{pct}%</span>
+            </div>
+        </div>
+        <style>@keyframes pulse {{ 0%,100% {{ opacity:1 }} 50% {{ opacity:0.3 }} }}</style>"""
+    elif scan and scan.get("status") == "complete":
+        scan_bar = f"""<div style="background:#eafaf0;border:1px solid #c8e6c9;border-radius:10px;padding:10px 16px;margin-bottom:12px;
+            display:flex;align-items:center;gap:10px">
+            <span style="font-size:13px;font-weight:600;color:#2e7d32">Scan Complete</span>
+            <span style="font-size:12px;color:#4caf50">{scan.get("message","")}</span>
+        </div>"""
+    elif scan and scan.get("status") == "failed":
+        scan_bar = f"""<div style="background:#fef0ef;border:1px solid #ffcdd2;border-radius:10px;padding:10px 16px;margin-bottom:12px;
+            display:flex;align-items:center;gap:10px">
+            <span style="font-size:13px;font-weight:600;color:#c62828">Scan Failed</span>
+            <span style="font-size:12px;color:#e57373">{scan.get("error","")[:100]}</span>
+        </div>"""
+
+    st.markdown(f"""{scan_bar}<div style="display:flex;align-items:center;justify-content:space-between;padding:20px 0;border-bottom:1px solid #e8e8ed;margin-bottom:32px">
         <div><div style="font-size:20px;font-weight:700;color:#1d1d1f;letter-spacing:-0.5px">AI Trading Crew</div>
         <div style="font-size:12px;color:#86868b">1,003 stocks &middot; LSE + US &middot; Long-term</div></div>
     </div>""", unsafe_allow_html=True)
